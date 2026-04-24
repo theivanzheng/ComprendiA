@@ -1,0 +1,37 @@
+<main>
+  <h1>ComprendiA</h1>
+  <p class="subtitulo">Asistente inteligente para clases grabadas</p>
+
+  <section class="formulario">
+    <input
+      #inputUrl
+      type="text"
+      placeholder="https://www.youtube.com/watch?v=..."
+    />
+    <button (click)="procesarVideo(inputUrl.value)" [disabled]="cargando">
+      Procesar vídeo
+    </button>
+  </section>
+
+  @if (cargando) {
+    <p class="cargando">Procesando vídeo...</p>
+  }
+
+  @if (error) {
+    <p class="error">{{ error }}</p>
+  }
+
+  @if (transcripcion) {
+    <section class="resultado">
+      <h2>{{ transcripcion.titulo }}</h2>
+      <p class="id-video">ID: {{ transcripcion.idVideo }}</p>
+
+      @for (fragmento of transcripcion.fragmentos; track fragmento.tiempoInicio) {
+        <div class="fragmento">
+          <span class="tiempo">{{ fragmento.tiempoInicio }}s – {{ fragmento.tiempoFin }}s</span>
+          <p>{{ fragmento.texto }}</p>
+        </div>
+      }
+    </section>
+  }
+</main>

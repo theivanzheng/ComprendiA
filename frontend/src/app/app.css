@@ -1,0 +1,50 @@
+main {
+  font-family: sans-serif;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+}
+
+h1 { font-size: 2rem; margin-bottom: 0.25rem; }
+.subtitulo { color: #555; margin-bottom: 2rem; }
+
+.formulario {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.formulario input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  font-size: 1rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.formulario button {
+  padding: 0.5rem 1.25rem;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.formulario button:disabled { opacity: 0.6; cursor: default; }
+
+.cargando { color: #555; font-style: italic; }
+.error { color: #c00; font-weight: bold; }
+
+.resultado h2 { margin-bottom: 0.25rem; }
+.id-video { color: #888; font-size: 0.85rem; margin-bottom: 1rem; }
+
+.fragmento {
+  border-left: 3px solid #333;
+  padding: 0.5rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.tiempo {
+  font-size: 0.8rem;
+  color: #666;
+  display: block;
+  margin-bottom: 0.25rem;
+}
