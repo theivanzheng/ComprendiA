@@ -26,6 +26,9 @@ public class TranscripcionYoutubeServicio {
     PipelineWhisperServicio pipelineWhisperServicio;
 
     @Inject
+    TranscripcionPersistenciaServicio transcripcionPersistenciaServicio;
+
+    @Inject
     @ConfigProperty(name = "comprendia.transcripcion.modo", defaultValue = "simulada")
     String modoTranscripcion;
 
@@ -33,11 +36,14 @@ public class TranscripcionYoutubeServicio {
         validarUrlYoutube(urlVideo);
         String idVideo = extraerIdVideo(urlVideo);
 
-        return switch (modoTranscripcion) {
+        RespuestaTranscripcionDTO respuesta = switch (modoTranscripcion) {
             case "scraping" -> procesarConScraping(idVideo);
             case "whisper"  -> pipelineWhisperServicio.transcribirDesdeAudio(idVideo);
             default         -> construirTranscripcionSimulada(idVideo);
         };
+
+        transcripcionPersistenciaServicio.guardarTranscripcion(respuesta);
+        return respuesta;
     }
 
     private RespuestaTranscripcionDTO procesarConScraping(String idVideo) {
