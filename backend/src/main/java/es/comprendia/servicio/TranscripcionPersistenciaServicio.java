@@ -9,11 +9,16 @@ import es.comprendia.repositorio.VideoRepositorio;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.jboss.logging.Logger;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @ApplicationScoped
 public class TranscripcionPersistenciaServicio {
+
+    private static final Logger LOG = Logger.getLogger(TranscripcionPersistenciaServicio.class);
 
     @Inject
     VideoRepositorio videoRepositorio;
@@ -22,7 +27,7 @@ public class TranscripcionPersistenciaServicio {
     FragmentoTranscripcionRepositorio fragmentoRepositorio;
 
     @Transactional
-    public Video guardarTranscripcion(RespuestaTranscripcionDTO respuesta) {
+    public List<FragmentoTranscripcion> guardarTranscripcion(RespuestaTranscripcionDTO respuesta) {
         Video video = new Video();
         video.youtubeId = respuesta.getIdVideo();
         video.titulo = respuesta.getTitulo();
@@ -30,6 +35,7 @@ public class TranscripcionPersistenciaServicio {
         video.fechaCreacion = LocalDateTime.now();
         videoRepositorio.persist(video);
 
+        List<FragmentoTranscripcion> fragmentosGuardados = new ArrayList<>();
         int orden = 0;
         for (FragmentoTranscripcionDTO dto : respuesta.getFragmentos()) {
             FragmentoTranscripcion fragmento = new FragmentoTranscripcion();
@@ -39,8 +45,12 @@ public class TranscripcionPersistenciaServicio {
             fragmento.tiempoFin = dto.getTiempoFin();
             fragmento.ordenFragmento = orden++;
             fragmentoRepositorio.persist(fragmento);
+            fragmentosGuardados.add(fragmento);
         }
 
-        return video;
+        LOG.infof("[Persistencia] Transcripción guardada: %d fragmentos, primer id=%s",
+            fragmentosGuardados.size(),
+            fragmentosGuardados.isEmpty() ? "ninguno" : fragmentosGuardados.get(0).id);
+        return fragmentosGuardados;
     }
 }

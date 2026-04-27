@@ -5,6 +5,8 @@ import io.quarkus.hibernate.orm.panache.PanacheRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import io.quarkus.panache.common.Sort;
+import jakarta.transaction.Transactional;
+import org.jboss.logging.Logger;
 
 import java.util.HashMap;
 import java.util.List;
@@ -12,6 +14,8 @@ import java.util.Map;
 
 @ApplicationScoped
 public class FragmentoTranscripcionRepositorio implements PanacheRepository<FragmentoTranscripcion> {
+
+    private static final Logger LOG = Logger.getLogger(FragmentoTranscripcionRepositorio.class);
 
     @SuppressWarnings("unchecked")
     public Map<Long, Long> contarPorVideos(List<Long> idsVideo) {
@@ -34,5 +38,22 @@ public class FragmentoTranscripcionRepositorio implements PanacheRepository<Frag
 
     public List<FragmentoTranscripcion> buscarPorVideoOrdenado(Long idVideo) {
         return find("video.id = ?1", Sort.by("ordenFragmento"), idVideo).list();
+    }
+
+    @Transactional
+    public void actualizarEmbedding(Long idFragmento, String embeddingJson) {
+        LOG.infof("[Embedding] actualizarEmbedding iniciado para fragmento id=%s", idFragmento);
+        int filasActualizadas = getEntityManager()
+            .createQuery(
+                "UPDATE FragmentoTranscripcion f SET f.embeddingJson = :ej WHERE f.id = :id")
+            .setParameter("ej", embeddingJson)
+            .setParameter("id", idFragmento)
+            .executeUpdate();
+        if (filasActualizadas == 0) {
+            LOG.errorf("[Embedding] No se encontró el fragmento id=%s en la BD — embedding no guardado", idFragmento);
+        } else {
+            LOG.infof("[Embedding] Embedding guardado correctamente para fragmento id=%s (%d fila actualizada)",
+                idFragmento, filasActualizadas);
+        }
     }
 }

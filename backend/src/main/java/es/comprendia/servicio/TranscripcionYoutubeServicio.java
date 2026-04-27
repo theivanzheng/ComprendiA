@@ -2,10 +2,12 @@ package es.comprendia.servicio;
 
 import es.comprendia.dto.FragmentoTranscripcionDTO;
 import es.comprendia.dto.RespuestaTranscripcionDTO;
+import es.comprendia.entidad.FragmentoTranscripcion;
 import es.comprendia.excepcion.ExcepcionTranscripcionYoutube;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.jboss.logging.Logger;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -15,6 +17,7 @@ import java.util.Set;
 @ApplicationScoped
 public class TranscripcionYoutubeServicio {
 
+    private static final Logger LOG = Logger.getLogger(TranscripcionYoutubeServicio.class);
     private static final Set<String> DOMINIOS_YOUTUBE = Set.of(
         "youtube.com", "www.youtube.com", "youtu.be"
     );
@@ -27,6 +30,9 @@ public class TranscripcionYoutubeServicio {
 
     @Inject
     TranscripcionPersistenciaServicio transcripcionPersistenciaServicio;
+
+    @Inject
+    EmbeddingFragmentoServicio embeddingFragmentoServicio;
 
     @Inject
     @ConfigProperty(name = "comprendia.transcripcion.modo", defaultValue = "simulada")
@@ -42,7 +48,10 @@ public class TranscripcionYoutubeServicio {
             default         -> construirTranscripcionSimulada(idVideo);
         };
 
-        transcripcionPersistenciaServicio.guardarTranscripcion(respuesta);
+        List<FragmentoTranscripcion> fragmentosGuardados = transcripcionPersistenciaServicio.guardarTranscripcion(respuesta);
+        LOG.infof("[Embedding] Lanzando generarYGuardar con %d fragmentos persistidos", fragmentosGuardados.size());
+        embeddingFragmentoServicio.generarYGuardar(fragmentosGuardados);
+        LOG.infof("[Embedding] generarYGuardar finalizado para vídeo %s", idVideo);
         return respuesta;
     }
 

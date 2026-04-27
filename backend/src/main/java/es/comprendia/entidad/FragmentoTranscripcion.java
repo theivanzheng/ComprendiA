@@ -22,4 +22,7 @@ public class FragmentoTranscripcion extends PanacheEntity {
 
     @Column(name = "orden_fragmento")
     public Integer ordenFragmento;
+
+    @Column(name = "embedding_json", columnDefinition = "TEXT", nullable = true)
+    public String embeddingJson;
 }
