@@ -24,8 +24,6 @@ public class FragmentoConsultaServicio {
         if (videoRepositorio.findById(id) == null) {
             throw new NotFoundException("Vídeo con id " + id + " no encontrado");
         }
-        return fragmentoRepositorio.buscarPorVideoOrdenado(id).stream()
-            .map(f -> new FragmentoDTO(f.texto, f.tiempoInicio, f.tiempoFin, f.ordenFragmento))
-            .toList();
+        return fragmentoRepositorio.buscarPorVideoOrdenado(id);
     }
 }
