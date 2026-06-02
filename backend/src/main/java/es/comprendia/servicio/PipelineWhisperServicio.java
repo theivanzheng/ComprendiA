@@ -1,5 +1,6 @@
 package es.comprendia.servicio;
 
+import es.comprendia.dto.EstadoTrabajoDTO.Fase;
 import es.comprendia.dto.FragmentoTranscripcionDTO;
 import es.comprendia.dto.RespuestaTranscripcionDTO;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -10,6 +11,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.function.Consumer;
 
 @ApplicationScoped
 public class PipelineWhisperServicio {
@@ -24,14 +26,20 @@ public class PipelineWhisperServicio {
 
     // Orquesta la descarga de audio y la transcripción. Borra el archivo temporal al terminar.
     public RespuestaTranscripcionDTO transcribirDesdeAudio(String idVideo) {
+        return transcribirDesdeAudio(idVideo, fase -> {});
+    }
+
+    public RespuestaTranscripcionDTO transcribirDesdeAudio(String idVideo, Consumer<Fase> actualizarFase) {
         LOG.infof("[Estado] Pipeline Whisper iniciado para: %s", idVideo);
         long inicioTotal = System.currentTimeMillis();
 
         Path archivoAudio = null;
         try {
+            actualizarFase.accept(Fase.DESCARGANDO);
             archivoAudio = audioExtraccionServicio.extraerAudio(idVideo);
-            LOG.info("[Estado] Iniciando transcripción Whisper");
 
+            LOG.info("[Estado] Iniciando transcripción Whisper");
+            actualizarFase.accept(Fase.TRANSCRIBIENDO);
             List<FragmentoTranscripcionDTO> fragmentos = transcripcionAudioWhisperServicio.transcribir(archivoAudio);
 
             LOG.infof("[Estado] Transcripción recibida — %d fragmentos en %d ms total (descarga + Whisper)",

@@ -6,6 +6,7 @@ import { RespuestaTranscripcion } from '../modelos/respuesta-transcripcion';
 import { VideoResumen } from '../modelos/video-resumen';
 import { FragmentoVideo } from '../modelos/fragmento-video';
 import { ResultadoBusqueda } from '../modelos/resultado-busqueda';
+import { EstadoTrabajo } from '../modelos/estado-trabajo';
 
 @Injectable({ providedIn: 'root' })
 export class TranscripcionServicio {
@@ -14,10 +15,16 @@ export class TranscripcionServicio {
 
   constructor(private http: HttpClient) {}
 
-  procesarYoutube(solicitud: SolicitudYoutube): Observable<RespuestaTranscripcion> {
-    return this.http.post<RespuestaTranscripcion>(
+  iniciarProcesamiento(solicitud: SolicitudYoutube): Observable<{ idTrabajo: string }> {
+    return this.http.post<{ idTrabajo: string }>(
       `${this.urlBase}/transcripciones/youtube`,
       solicitud
+    );
+  }
+
+  obtenerEstadoTrabajo(idTrabajo: string): Observable<EstadoTrabajo> {
+    return this.http.get<EstadoTrabajo>(
+      `${this.urlBase}/transcripciones/youtube/${idTrabajo}`
     );
   }
 
@@ -30,7 +37,9 @@ export class TranscripcionServicio {
   }
 
   buscar(id: number, pregunta: string): Observable<ResultadoBusqueda[]> {
-    const params = { pregunta };
-    return this.http.get<ResultadoBusqueda[]>(`${this.urlBase}/transcripciones/${id}/buscar`, { params });
+    return this.http.get<ResultadoBusqueda[]>(
+      `${this.urlBase}/transcripciones/${id}/buscar`,
+      { params: { pregunta } }
+    );
   }
 }

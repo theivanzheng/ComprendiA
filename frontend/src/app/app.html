@@ -96,12 +96,33 @@
 
       @if (cargando) {
         <div class="progreso-area">
-          <div class="progreso-barra">
-            <div class="progreso-fill"></div>
+
+          <!-- Stepper de fases -->
+          <div class="fases-lista">
+            @for (paso of PASOS; track paso.fase) {
+              <div class="fase-item"
+                   [class.completada]="esFaseCompletada(paso.fase)"
+                   [class.activa]="faseActual === paso.fase"
+                   [class.pendiente]="esFasePendiente(paso.fase)">
+                <div class="fase-indicador">
+                  @if (esFaseCompletada(paso.fase)) {
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  } @else if (faseActual === paso.fase) {
+                    <span class="fase-spinner"></span>
+                  } @else {
+                    <span class="fase-dot"></span>
+                  }
+                </div>
+                <div class="fase-info">
+                  <span class="fase-nombre">{{ paso.label }}</span>
+                  @if (faseActual === paso.fase) {
+                    <span class="fase-descripcion">{{ paso.descripcion }}</span>
+                  }
+                </div>
+              </div>
+            }
           </div>
-          <p class="progreso-texto">
-            Descargando audio, transcribiendo con Whisper y generando embeddings…
-          </p>
+
           @if (mostrarAviso180s) {
             <div class="aviso aviso-critico">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>

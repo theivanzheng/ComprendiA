@@ -80,22 +80,58 @@ Abre el navegador en **http://localhost:4200**
 
 **Desde el navegador:**
 1. Pega una URL de YouTube y pulsa "Procesar vídeo"
-2. Espera la barra de progreso (puede tardar 1–5 minutos)
+2. Observa el progreso paso a paso (descarga → transcripción → guardado → embeddings)
 3. Cuando termine, escribe una pregunta para buscar semánticamente
+
+**Formatos de URL admitidos:**
+- `https://www.youtube.com/watch?v=ID`
+- `https://youtu.be/ID`
+- `https://www.youtube.com/shorts/ID`
+- `https://m.youtube.com/watch?v=ID` (móvil)
+- Con timestamp: `?v=ID&t=30s`
+- Sin protocolo: `www.youtube.com/watch?v=ID`
 
 **Desde la terminal:**
 
 ```bash
-# Transcribir un vídeo
+# Iniciar transcripción (devuelve idTrabajo inmediatamente)
 curl -X POST http://localhost:8080/api/transcripciones/youtube \
   -H "Content-Type: application/json" \
   -d '{"urlVideo":"https://www.youtube.com/watch?v=YavB75vLSuc"}'
+# → {"idTrabajo":"uuid"}
+
+# Consultar estado del trabajo
+curl http://localhost:8080/api/transcripciones/youtube/{idTrabajo}
+# → {"fase":"DESCARGANDO"|"TRANSCRIBIENDO"|"GUARDANDO"|"EMBEDDINGS"|"COMPLETADO"|"ERROR"}
 
 # Ver historial de vídeos
 curl http://localhost:8080/api/transcripciones
 
-# Búsqueda semántica (sustituye {id} por el id devuelto)
+# Búsqueda semántica (sustituye {id} por el id del vídeo)
 curl "http://localhost:8080/api/transcripciones/{id}/buscar?pregunta=¿De qué trata el vídeo?"
+```
+
+---
+
+## Endpoints disponibles
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/api/salud` | Comprobación de salud |
+| POST | `/api/transcripciones/youtube` | Iniciar transcripción (async, devuelve `idTrabajo`) |
+| GET | `/api/transcripciones/youtube/{idTrabajo}` | Estado del trabajo en curso |
+| GET | `/api/transcripciones` | Historial paginado de vídeos |
+| GET | `/api/transcripciones/{id}/fragmentos` | Fragmentos de un vídeo |
+| GET | `/api/transcripciones/{id}/buscar?pregunta=...` | Búsqueda semántica |
+
+---
+
+## Arquitectura del procesamiento asíncrono
+
+El endpoint `POST /api/transcripciones/youtube` devuelve un `idTrabajo` inmediatamente (HTTP 202) y lanza el pipeline en un hilo virtual de Java 21. El frontend hace polling cada 2.5 segundos al endpoint de estado y actualiza un stepper visual con las fases:
+
+```
+DESCARGANDO → TRANSCRIBIENDO → GUARDANDO → EMBEDDINGS → COMPLETADO
 ```
 
 ---

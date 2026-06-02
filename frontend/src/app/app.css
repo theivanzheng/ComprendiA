@@ -330,31 +330,106 @@
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ── Progreso ── */
-.progreso-area { display: flex; flex-direction: column; gap: 0.5rem; }
+/* ── Progreso / Stepper ── */
+.progreso-area { display: flex; flex-direction: column; gap: 1rem; }
 
-.progreso-barra {
-  height: 3px;
+.fases-lista {
+  display: flex;
+  flex-direction: column;
+  padding: 0.25rem 0;
+}
+
+.fase-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.875rem;
+  padding: 0.55rem 0;
+  position: relative;
+}
+
+/* línea vertical entre pasos */
+.fase-item:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: calc(0.55rem + 22px);
+  width: 2px;
+  height: calc(100% - 10px);
   background: var(--border);
-  border-radius: 2px;
-  overflow: hidden;
+  transition: background 0.3s;
 }
 
-.progreso-fill {
-  height: 100%;
-  width: 35%;
-  background: linear-gradient(90deg, var(--accent), #8b5cf6);
-  border-radius: 2px;
-  animation: sweep 1.8s ease-in-out infinite;
+.fase-item.completada:not(:last-child)::after { background: var(--green); }
+.fase-item.activa:not(:last-child)::after     { background: var(--border); }
+
+.fase-indicador {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+  transition: background 0.25s, color 0.25s;
 }
 
-@keyframes sweep {
-  0%   { transform: translateX(-200%); }
-  100% { transform: translateX(500%); }
+.fase-item.completada .fase-indicador {
+  background: var(--green);
+  color: white;
 }
 
-.progreso-texto {
-  font-size: 0.8rem;
+.fase-item.activa .fase-indicador {
+  background: var(--accent);
+  color: white;
+  animation: pulsarFase 1.8s ease-in-out infinite;
+}
+
+.fase-item.pendiente .fase-indicador {
+  background: var(--border);
+}
+
+@keyframes pulsarFase {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99,102,241,.45); }
+  50%       { box-shadow: 0 0 0 7px rgba(99,102,241,0); }
+}
+
+.fase-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(255,255,255,.4);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.fase-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0.4;
+}
+
+.fase-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding-top: 2px;
+}
+
+.fase-nombre {
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: color 0.25s;
+}
+
+.fase-item.completada .fase-nombre { color: var(--green); }
+.fase-item.activa     .fase-nombre { color: var(--accent); font-weight: 600; }
+.fase-item.pendiente  .fase-nombre { color: var(--muted); }
+
+.fase-descripcion {
+  font-size: 0.78rem;
   color: var(--muted);
   font-style: italic;
 }

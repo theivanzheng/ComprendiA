@@ -1,5 +1,6 @@
 package es.comprendia.servicio;
 
+import es.comprendia.dto.EstadoTrabajoDTO.Fase;
 import es.comprendia.dto.FragmentoTranscripcionDTO;
 import es.comprendia.dto.RespuestaTranscripcionDTO;
 import es.comprendia.entidad.FragmentoTranscripcion;
@@ -13,13 +14,14 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
 
 @ApplicationScoped
 public class TranscripcionYoutubeServicio {
 
     private static final Logger LOG = Logger.getLogger(TranscripcionYoutubeServicio.class);
     private static final Set<String> DOMINIOS_YOUTUBE = Set.of(
-        "youtube.com", "www.youtube.com", "youtu.be"
+        "youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"
     );
 
     @Inject
@@ -38,7 +40,13 @@ public class TranscripcionYoutubeServicio {
     @ConfigProperty(name = "comprendia.transcripcion.modo", defaultValue = "simulada")
     String modoTranscripcion;
 
+    // Backward-compat: lo siguen usando los tests y cualquier llamada legacy
     public RespuestaTranscripcionDTO procesarUrlYoutube(String urlVideo) {
+        validarUrlYoutube(urlVideo);
+        return procesarUrlYoutube(urlVideo, fase -> {});
+    }
+
+    public RespuestaTranscripcionDTO procesarUrlYoutube(String urlVideo, Consumer<Fase> actualizarFase) {
         LOG.infof("[Tiempo] ===== Proceso total iniciado =====");
         long inicioTotal = System.currentTimeMillis();
 
@@ -49,18 +57,25 @@ public class TranscripcionYoutubeServicio {
         LOG.infof("[Tiempo] Validación completada en %d ms — idVideo: %s",
             System.currentTimeMillis() - inicioFase, idVideo);
 
-        // Fase 2: transcripción
+        // Fase 2: transcripción (el pipeline Whisper emite DESCARGANDO y TRANSCRIBIENDO)
         inicioFase = System.currentTimeMillis();
         RespuestaTranscripcionDTO respuesta = switch (modoTranscripcion) {
-            case "scraping" -> procesarConScraping(idVideo);
-            case "whisper"  -> pipelineWhisperServicio.transcribirDesdeAudio(idVideo);
-            default         -> construirTranscripcionSimulada(idVideo);
+            case "scraping" -> {
+                actualizarFase.accept(Fase.TRANSCRIBIENDO);
+                yield procesarConScraping(idVideo);
+            }
+            case "whisper" -> pipelineWhisperServicio.transcribirDesdeAudio(idVideo, actualizarFase);
+            default -> {
+                actualizarFase.accept(Fase.TRANSCRIBIENDO);
+                yield construirTranscripcionSimulada(idVideo);
+            }
         };
         LOG.infof("[Tiempo] Transcripción completada en %d ms — %d fragmentos",
             System.currentTimeMillis() - inicioFase, respuesta.getFragmentos().size());
 
         // Fase 3: persistencia
         LOG.info("[Estado] Guardando en base de datos");
+        actualizarFase.accept(Fase.GUARDANDO);
         inicioFase = System.currentTimeMillis();
         List<FragmentoTranscripcion> fragmentosGuardados = transcripcionPersistenciaServicio.guardarTranscripcion(respuesta);
         LOG.infof("[Tiempo] Persistencia completada en %d ms — %d fragmentos guardados",
@@ -68,6 +83,7 @@ public class TranscripcionYoutubeServicio {
 
         // Fase 4: embeddings
         LOG.infof("[Estado] Generando embeddings para %d fragmentos", fragmentosGuardados.size());
+        actualizarFase.accept(Fase.EMBEDDINGS);
         inicioFase = System.currentTimeMillis();
         embeddingFragmentoServicio.generarYGuardar(fragmentosGuardados);
         LOG.infof("[Tiempo] Embeddings completados en %d ms",
@@ -87,14 +103,20 @@ public class TranscripcionYoutubeServicio {
         }
     }
 
-    private void validarUrlYoutube(String urlVideo) {
+    public void validarUrlYoutube(String urlVideo) {
         if (urlVideo == null || urlVideo.isBlank()) {
             throw new IllegalArgumentException("La URL del vídeo no puede estar vacía");
         }
+        String url = urlVideo.strip();
+        // Añadir protocolo si falta (ej: "www.youtube.com/...")
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            url = "https://" + url;
+        }
         try {
-            String host = new URI(urlVideo).getHost();
+            String host = new URI(url).getHost();
             if (host == null || !DOMINIOS_YOUTUBE.contains(host)) {
-                throw new IllegalArgumentException("La URL no corresponde a un vídeo de YouTube");
+                throw new IllegalArgumentException(
+                    "La URL no corresponde a un vídeo de YouTube válido");
             }
         } catch (URISyntaxException e) {
             throw new IllegalArgumentException("La URL no tiene un formato válido");
@@ -102,15 +124,24 @@ public class TranscripcionYoutubeServicio {
     }
 
     private String extraerIdVideo(String urlVideo) {
-        if (urlVideo.contains("youtube.com/watch?v=")) {
-            int inicio = urlVideo.indexOf("v=") + 2;
-            int fin = urlVideo.indexOf('&', inicio);
-            return fin == -1 ? urlVideo.substring(inicio) : urlVideo.substring(inicio, fin);
+        String url = urlVideo.strip();
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            url = "https://" + url;
         }
-        if (urlVideo.contains("youtu.be/")) {
-            int inicio = urlVideo.indexOf("youtu.be/") + 9;
-            int fin = urlVideo.indexOf('?', inicio);
-            return fin == -1 ? urlVideo.substring(inicio) : urlVideo.substring(inicio, fin);
+        if (url.contains("youtube.com/watch?v=")) {
+            int inicio = url.indexOf("v=") + 2;
+            int fin = url.indexOf('&', inicio);
+            return fin == -1 ? url.substring(inicio) : url.substring(inicio, fin);
+        }
+        if (url.contains("youtu.be/")) {
+            int inicio = url.indexOf("youtu.be/") + 9;
+            int fin = url.indexOf('?', inicio);
+            return fin == -1 ? url.substring(inicio) : url.substring(inicio, fin);
+        }
+        if (url.contains("youtube.com/shorts/")) {
+            int inicio = url.indexOf("youtube.com/shorts/") + 19;
+            int fin = url.indexOf('?', inicio);
+            return fin == -1 ? url.substring(inicio) : url.substring(inicio, fin);
         }
         throw new IllegalArgumentException("Formato de URL de YouTube no reconocido");
     }

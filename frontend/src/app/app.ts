@@ -1,10 +1,17 @@
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TranscripcionServicio } from './servicios/transcripcion.servicio';
 import { RespuestaTranscripcion } from './modelos/respuesta-transcripcion';
 import { VideoResumen } from './modelos/video-resumen';
 import { FragmentoVideo } from './modelos/fragmento-video';
 import { ResultadoBusqueda } from './modelos/resultado-busqueda';
+import { FaseTrabajo } from './modelos/estado-trabajo';
+
+interface PasoProcesamiento {
+  fase: FaseTrabajo;
+  label: string;
+  descripcion: string;
+}
 
 @Component({
   selector: 'app-root',
@@ -12,7 +19,7 @@ import { ResultadoBusqueda } from './modelos/resultado-busqueda';
   templateUrl: './app.html',
   styleUrl: './app.css'
 })
-export class App implements OnInit {
+export class App implements OnInit, OnDestroy {
 
   protected urlVideo = '';
   protected cargando = false;
@@ -31,15 +38,37 @@ export class App implements OnInit {
   protected cargandoBusqueda = false;
   protected errorBusqueda = '';
 
+  protected faseActual: FaseTrabajo | null = null;
   protected tiempoProcesando = 0;
   protected mostrarAviso60s = false;
   protected mostrarAviso180s = false;
+
+  private intervaloPolling: ReturnType<typeof setInterval> | null = null;
   private intervaloTiempo: ReturnType<typeof setInterval> | null = null;
 
-  constructor(private transcripcionServicio: TranscripcionServicio) {}
+  readonly PASOS: PasoProcesamiento[] = [
+    { fase: 'DESCARGANDO',   label: 'Descargando audio',         descripcion: 'yt-dlp descarga el audio del vídeo de YouTube…' },
+    { fase: 'TRANSCRIBIENDO', label: 'Transcribiendo con Whisper', descripcion: 'Enviando audio a la API de OpenAI Whisper…' },
+    { fase: 'GUARDANDO',      label: 'Guardando transcripción',    descripcion: 'Persistiendo los fragmentos en PostgreSQL…' },
+    { fase: 'EMBEDDINGS',     label: 'Generando embeddings',       descripcion: 'Calculando vectores semánticos con OpenAI…' },
+  ];
+
+  private readonly ORDEN_FASES: FaseTrabajo[] = [
+    'DESCARGANDO', 'TRANSCRIBIENDO', 'GUARDANDO', 'EMBEDDINGS'
+  ];
+
+  constructor(
+    private transcripcionServicio: TranscripcionServicio,
+    private cd: ChangeDetectorRef
+  ) {}
 
   ngOnInit(): void {
     this.cargarHistorial();
+  }
+
+  ngOnDestroy(): void {
+    this.detenerPolling();
+    this.detenerTemporizador();
   }
 
   procesarVideo(): void {
@@ -47,14 +76,12 @@ export class App implements OnInit {
     this.cargando = true;
     this.error = '';
     this.transcripcion = null;
+    this.faseActual = null;
     this.iniciarTemporizador();
 
-    this.transcripcionServicio.procesarYoutube({ urlVideo: this.urlVideo }).subscribe({
-      next: (respuesta) => {
-        this.transcripcion = respuesta;
-        this.cargando = false;
-        this.detenerTemporizador();
-        this.cargarHistorial();
+    this.transcripcionServicio.iniciarProcesamiento({ urlVideo: this.urlVideo }).subscribe({
+      next: ({ idTrabajo }) => {
+        this.iniciarPolling(idTrabajo);
       },
       error: (err) => {
         this.error = err.error?.error ?? 'Error al conectar con el servidor';
@@ -70,9 +97,11 @@ export class App implements OnInit {
       next: (videos) => {
         this.historial = videos;
         this.cargandoHistorial = false;
+        this.cd.detectChanges();
       },
       error: () => {
         this.cargandoHistorial = false;
+        this.cd.detectChanges();
       }
     });
   }
@@ -89,9 +118,11 @@ export class App implements OnInit {
       next: (fragmentos) => {
         this.fragmentos = fragmentos;
         this.cargandoFragmentos = false;
+        this.cd.detectChanges();
       },
       error: () => {
         this.cargandoFragmentos = false;
+        this.cd.detectChanges();
       }
     });
   }
@@ -106,12 +137,24 @@ export class App implements OnInit {
       next: (resultados) => {
         this.resultadosBusqueda = resultados;
         this.cargandoBusqueda = false;
+        this.cd.detectChanges();
       },
       error: (err) => {
         this.errorBusqueda = err.error?.error ?? 'Error en la búsqueda';
         this.cargandoBusqueda = false;
+        this.cd.detectChanges();
       }
     });
+  }
+
+  esFaseCompletada(fase: FaseTrabajo): boolean {
+    if (!this.faseActual) return false;
+    return this.ORDEN_FASES.indexOf(this.faseActual) > this.ORDEN_FASES.indexOf(fase);
+  }
+
+  esFasePendiente(fase: FaseTrabajo): boolean {
+    if (!this.faseActual) return true;
+    return this.ORDEN_FASES.indexOf(fase) > this.ORDEN_FASES.indexOf(this.faseActual);
   }
 
   formatearTiempo(segundos: number): string {
@@ -122,6 +165,43 @@ export class App implements OnInit {
 
   formatearSimilitud(similitud: number): string {
     return `${Math.round(similitud * 100)}%`;
+  }
+
+  private iniciarPolling(idTrabajo: string): void {
+    this.intervaloPolling = setInterval(() => {
+      this.transcripcionServicio.obtenerEstadoTrabajo(idTrabajo).subscribe({
+        next: (estado) => {
+          this.faseActual = estado.fase;
+          if (estado.fase === 'COMPLETADO') {
+            this.detenerPolling();
+            this.detenerTemporizador();
+            this.transcripcion = estado.resultado!;
+            this.cargando = false;
+            this.cargarHistorial();
+          } else if (estado.fase === 'ERROR') {
+            this.detenerPolling();
+            this.detenerTemporizador();
+            this.error = estado.error ?? 'Error desconocido en el procesamiento';
+            this.cargando = false;
+          }
+          this.cd.detectChanges();
+        },
+        error: () => {
+          this.detenerPolling();
+          this.detenerTemporizador();
+          this.error = 'Error al consultar el estado del procesamiento';
+          this.cargando = false;
+          this.cd.detectChanges();
+        }
+      });
+    }, 2500);
+  }
+
+  private detenerPolling(): void {
+    if (this.intervaloPolling !== null) {
+      clearInterval(this.intervaloPolling);
+      this.intervaloPolling = null;
+    }
   }
 
   private iniciarTemporizador(): void {

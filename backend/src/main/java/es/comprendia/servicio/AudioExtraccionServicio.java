@@ -67,7 +67,16 @@ public class AudioExtraccionServicio {
             constructorProceso.redirectErrorStream(true);
             Process proceso = constructorProceso.start();
 
-            String salidaProceso = new String(proceso.getInputStream().readAllBytes());
+            // Leer la salida en un hilo daemon para no bloquear waitFor()
+            StringBuilder salidaBuilder = new StringBuilder();
+            Thread lectorSalida = new Thread(() -> {
+                try (var stream = proceso.getInputStream()) {
+                    salidaBuilder.append(new String(stream.readAllBytes()));
+                } catch (IOException ignorado) {}
+            });
+            lectorSalida.setDaemon(true);
+            lectorSalida.start();
+
             boolean terminoATiempo = proceso.waitFor(TIMEOUT_SEGUNDOS, TimeUnit.SECONDS);
 
             if (!terminoATiempo) {
@@ -75,6 +84,8 @@ public class AudioExtraccionServicio {
                 throw new ExcepcionDescargaAudio("yt-dlp superó el tiempo límite de " + TIMEOUT_SEGUNDOS + " segundos");
             }
 
+            lectorSalida.join(3000);
+            String salidaProceso = salidaBuilder.toString();
             int codigoSalida = proceso.exitValue();
             long duracion = System.currentTimeMillis() - inicio;
 
