@@ -28,6 +28,8 @@ public class TranscripcionPersistenciaServicio {
 
     @Transactional
     public List<FragmentoTranscripcion> guardarTranscripcion(RespuestaTranscripcionDTO respuesta) {
+        LOG.info("[Estado] Guardando vídeo y fragmentos en PostgreSQL");
+        long inicio = System.currentTimeMillis();
         Video video = new Video();
         video.youtubeId = respuesta.getIdVideo();
         video.titulo = respuesta.getTitulo();
@@ -48,7 +50,8 @@ public class TranscripcionPersistenciaServicio {
             fragmentosGuardados.add(fragmento);
         }
 
-        LOG.infof("[Persistencia] Transcripción guardada: %d fragmentos, primer id=%s",
+        LOG.infof("[Tiempo] Persistencia completada en %d ms — %d fragmentos, primer id=%s",
+            System.currentTimeMillis() - inicio,
             fragmentosGuardados.size(),
             fragmentosGuardados.isEmpty() ? "ninguno" : fragmentosGuardados.get(0).id);
         return fragmentosGuardados;

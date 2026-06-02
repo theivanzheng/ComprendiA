@@ -40,6 +40,11 @@ public class FragmentoTranscripcionRepositorio implements PanacheRepository<Frag
         return find("video.id = ?1", Sort.by("ordenFragmento"), idVideo).list();
     }
 
+    public List<FragmentoTranscripcion> buscarConEmbedding(Long idVideo) {
+        return find("video.id = ?1 AND embeddingJson IS NOT NULL",
+            Sort.by("ordenFragmento"), idVideo).list();
+    }
+
     @Transactional
     public void actualizarEmbedding(Long idFragmento, String embeddingJson) {
         LOG.infof("[Embedding] actualizarEmbedding iniciado para fragmento id=%s", idFragmento);

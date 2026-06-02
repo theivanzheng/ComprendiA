@@ -39,6 +39,7 @@ public class EmbeddingFragmentoServicio {
             return;
         }
 
+        long inicioTotal = System.currentTimeMillis();
         int exitos = 0;
         for (FragmentoTranscripcion fragmento : fragmentos) {
             LOG.infof("[Embedding] Procesando fragmento id=%s, texto=%s chars",
@@ -51,9 +52,10 @@ public class EmbeddingFragmentoServicio {
             }
 
             try {
+                long inicioEmbedding = System.currentTimeMillis();
                 List<Double> embedding = embeddingServicio.generarEmbedding(fragmento.texto);
-                LOG.infof("[Embedding] OpenAI devolvió %d dimensiones para fragmento id=%s",
-                    embedding.size(), fragmento.id);
+                LOG.infof("[Tiempo] Embedding fragmento id=%s — %d dimensiones en %d ms",
+                    fragmento.id, embedding.size(), System.currentTimeMillis() - inicioEmbedding);
 
                 String embeddingJson = mapeadorJson.writeValueAsString(embedding);
                 fragmentoRepositorio.actualizarEmbedding(fragmento.id, embeddingJson);
@@ -64,7 +66,7 @@ public class EmbeddingFragmentoServicio {
             }
         }
 
-        LOG.infof("[Embedding] ===== Completado: %d/%d fragmentos con embedding =====",
-            exitos, fragmentos.size());
+        LOG.infof("[Tiempo] Embeddings completados en %d ms — %d/%d fragmentos",
+            System.currentTimeMillis() - inicioTotal, exitos, fragmentos.size());
     }
 }

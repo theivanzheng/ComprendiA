@@ -6,6 +6,7 @@ import es.comprendia.dto.FragmentoTranscripcionDTO;
 import es.comprendia.excepcion.ExcepcionTranscripcionAudio;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.jboss.logging.Logger;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -24,6 +25,7 @@ import java.util.UUID;
 @ApplicationScoped
 public class TranscripcionAudioWhisperServicio implements TranscripcionAudioServicio {
 
+    private static final Logger LOG = Logger.getLogger(TranscripcionAudioWhisperServicio.class);
     private static final String URL_WHISPER = "https://api.openai.com/v1/audio/transcriptions";
     private static final Duration TIMEOUT_SOLICITUD = Duration.ofMinutes(5);
 
@@ -53,7 +55,12 @@ public class TranscripcionAudioWhisperServicio implements TranscripcionAudioServ
             .build();
 
         try {
+            LOG.infof("[Estado] Enviando audio a Whisper — archivo: %s", archivoAudio.getFileName());
+            long inicioWhisper = System.currentTimeMillis();
+
             HttpResponse<String> respuesta = clienteHttp.send(solicitud, HttpResponse.BodyHandlers.ofString());
+            LOG.infof("[Tiempo] Whisper completado en %d ms (HTTP %d)",
+                System.currentTimeMillis() - inicioWhisper, respuesta.statusCode());
 
             if (respuesta.statusCode() != 200) {
                 throw new ExcepcionTranscripcionAudio(

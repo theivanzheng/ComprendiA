@@ -4,7 +4,25 @@
       "Bash(mvn compile *)",
       "Bash(mvn test *)",
       "Bash(yt-dlp --version)",
-      "Bash(brew install *)"
+      "Bash(brew install *)",
+      "Bash(./mvnw test *)",
+      "Bash(/usr/local/bin/mvn test *)",
+      "Bash(mvn --version)",
+      "Bash(find /opt /usr /Library -name \"mvn\" 2>/dev/null | head -5; find ~/Library -name \"mvn\" 2>/dev/null | head -5)",
+      "Read(//opt/**)",
+      "Read(//Users/administrador/Library/**)",
+      "Bash(export PATH=\"$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.sdkman/candidates/maven/current/bin\")",
+      "Bash(mvn -f /Users/administrador/Documents/UPSA/Cuarto/TFG/Comprendia/backend/pom.xml test)",
+      "Bash(find /Users/administrador -name \"mvn\" -type f 2>/dev/null | head -5; ls /Users/administrador/.sdkman/candidates/ 2>/dev/null; ls /opt/homebrew/Cellar/ 2>/dev/null | grep maven)",
+      "Read(//Users/administrador/**)",
+      "Read(//Users/administrador/.sdkman/**)",
+      "Bash(ls /opt/homebrew/opt/ | grep -i maven; ls /usr/local/opt/ 2>/dev/null | grep -i maven)",
+      "Read(//usr/local/opt/**)",
+      "Bash(ls /usr/local/opt/ 2>/dev/null | grep -i maven; ls /usr/local/Cellar/ 2>/dev/null | grep -i maven)",
+      "Read(//usr/local/Cellar/**)",
+      "Bash(\"/Applications/IntelliJ IDEA.app/Contents/plugins/maven/lib/maven3/bin/mvn\" -f /Users/administrador/Documents/UPSA/Cuarto/TFG/Comprendia/backend/pom.xml test)",
+      "Bash(npx ng *)",
+      "Bash(git check-ignore *)"
     ]
   }
 }

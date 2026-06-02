@@ -2,6 +2,7 @@ package es.comprendia.servicio;
 
 import es.comprendia.excepcion.ExcepcionDescargaAudio;
 import jakarta.enterprise.context.ApplicationScoped;
+import org.jboss.logging.Logger;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -12,11 +13,14 @@ import java.util.concurrent.TimeUnit;
 @ApplicationScoped
 public class AudioExtraccionServicio {
 
+    private static final Logger LOG = Logger.getLogger(AudioExtraccionServicio.class);
     private static final String DIRECTORIO_TEMPORAL = "/tmp/comprendia/";
     private static final int TIMEOUT_SEGUNDOS = 120;
 
-    // Devuelve la ruta al archivo MP3 descargado para el idVideo dado.
     public Path extraerAudio(String idVideo) {
+        LOG.infof("[Estado] Iniciando descarga de audio para: %s", idVideo);
+        long inicio = System.currentTimeMillis();
+
         Path directorio = Path.of(DIRECTORIO_TEMPORAL);
         crearDirectorioSiNoExiste(directorio);
 
@@ -26,6 +30,7 @@ public class AudioExtraccionServicio {
         ejecutarYtDlp(urlVideo, archivoDestino);
         validarArchivoGenerado(archivoDestino);
 
+        LOG.infof("[Tiempo] Descarga audio completada en %d ms", System.currentTimeMillis() - inicio);
         return archivoDestino;
     }
 
@@ -54,6 +59,9 @@ public class AudioExtraccionServicio {
             urlVideo
         );
 
+        LOG.infof("[Tiempo] Ejecutando yt-dlp (timeout=%ds)", TIMEOUT_SEGUNDOS);
+        long inicio = System.currentTimeMillis();
+
         try {
             ProcessBuilder constructorProceso = new ProcessBuilder(comando);
             constructorProceso.redirectErrorStream(true);
@@ -68,9 +76,14 @@ public class AudioExtraccionServicio {
             }
 
             int codigoSalida = proceso.exitValue();
+            long duracion = System.currentTimeMillis() - inicio;
+
             if (codigoSalida != 0) {
-                throw new ExcepcionDescargaAudio("yt-dlp falló con código " + codigoSalida + ": " + salidaProceso.trim());
+                throw new ExcepcionDescargaAudio(
+                    "yt-dlp falló con código " + codigoSalida + " en " + duracion + "ms: " + salidaProceso.trim());
             }
+
+            LOG.infof("[Tiempo] yt-dlp completado en %d ms (código=%d)", duracion, codigoSalida);
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -85,9 +98,11 @@ public class AudioExtraccionServicio {
             throw new ExcepcionDescargaAudio("yt-dlp no generó el archivo esperado: " + archivo);
         }
         try {
-            if (Files.size(archivo) == 0) {
+            long tamanyoBytes = Files.size(archivo);
+            if (tamanyoBytes == 0) {
                 throw new ExcepcionDescargaAudio("El archivo de audio generado está vacío: " + archivo);
             }
+            LOG.infof("[Estado] Audio descargado — archivo: %s (%d bytes)", archivo.getFileName(), tamanyoBytes);
         } catch (IOException e) {
             throw new ExcepcionDescargaAudio("No se pudo leer el tamaño del archivo: " + e.getMessage(), e);
         }

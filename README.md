@@ -1,265 +1,116 @@
-ComprendiA
+# ComprendiA
 
-Aplicación educativa inteligente para analizar vídeos/clases grabadas mediante IA.
+Aplicación educativa que transcribe vídeos de YouTube, genera embeddings por fragmento y permite búsqueda semántica sobre el contenido.
 
-⸻
+---
 
-📌 Descripción
+## Requisitos previos
 
-ComprendiA permite:
+Instala las herramientas del sistema (solo la primera vez):
 
-* Obtener la transcripción de un vídeo de YouTube
-* Fragmentar el contenido en bloques temporales
-* Persistir los datos en PostgreSQL (Neon/Supabase)
-* Generar embeddings mediante OpenAI
-* Preparar los datos para búsqueda semántica (RAG)
+```bash
+brew install yt-dlp ffmpeg
+```
 
-⸻
+Comprueba que están disponibles:
 
-🧠 Arquitectura
+```bash
+which yt-dlp && which ffmpeg && which ffprobe
+```
 
-Flujo actual:
+También necesitas:
+- Java 21
+- Maven
+- Node.js + Angular CLI (`npm install -g @angular/cli`)
+- Una cuenta en [Neon](https://neon.tech) con una base de datos PostgreSQL creada
+- Una clave de OpenAI (`sk-...`)
 
-YouTube → Descarga audio → Whisper → Fragmentación → PostgreSQL → Embeddings → (futuro: búsqueda semántica)
+---
 
-⸻
+## Arranque en local
 
-⚙️ Stack
+### 1. Configurar las variables de entorno del backend
 
-* Backend: Java 21 + Quarkus
-* Frontend: Angular
-* Transcripción: yt-dlp + ffmpeg + OpenAI Whisper
-* IA / embeddings: OpenAI API
-* RAG (futuro): LangChain4j
-* Base de datos: PostgreSQL (Neon / Supabase)
-* Tests: H2
+Edita `backend/.env` con tus credenciales reales:
 
-⸻
+```
+OPENAI_API_KEY=sk-...
+DATABASE_URL=jdbc:postgresql://HOST/NOMBRE_BD?user=USUARIO&password=CONTRASEÑA&sslmode=require
+```
 
-📊 Estado actual
+> La `DATABASE_URL` la encuentras en el panel de Neon → tu proyecto → "Connection string". Cambia el prefijo `postgresql://` por `jdbc:postgresql://`.
 
-✔ Backend Quarkus funcional
-✔ Frontend Angular funcional
-✔ Endpoint /api/salud
-✔ Integración con YouTube
-✔ Descarga de audio (yt-dlp)
-✔ Procesamiento con ffmpeg
-✔ Transcripción real (Whisper)
-✔ Fragmentación con timestamps
-✔ Persistencia en PostgreSQL
-✔ Generación de embeddings por fragmento
+---
 
-⬜ Búsqueda semántica
-⬜ RAG completo
-⬜ UI avanzada
+### 2. Arrancar el backend
 
-⸻
+En una terminal:
 
-📁 Estructura del proyecto
-
-Comprendia/
-├── backend/    # API REST con Quarkus
-├── frontend/   # Interfaz con Angular
-├── docs/       # Documentación técnica
-└── README.md
-
-⸻
-
-🧰 Requisitos locales
-
-brew install yt-dlp
-brew install ffmpeg
-
-Comprobar:
-
-which yt-dlp
-which ffmpeg
-which ffprobe
-
-⸻
-
-🔐 Variables de entorno
-
-export OPENAI_API_KEY="sk-..."
-export DATABASE_URL="jdbc:postgresql://HOST/DB?user=USER&password=PASS&sslmode=require"
-
-Comprobar:
-
-echo $OPENAI_API_KEY
-echo $DATABASE_URL
-
-⸻
-
-⚠️ IMPORTANTE — Formato de DATABASE_URL
-
-Neon da:
-
-postgresql://user:pass@host/db
-
-Pero Quarkus necesita:
-
-jdbc:postgresql://host/db?user=USER&password=PASS&sslmode=require
-
-⸻
-
-⚙️ Configuración backend
-
-En application.properties:
-
-comprendia.openai.api.clave=${OPENAI_API_KEY}
-comprendia.transcripcion.modo=whisper
-quarkus.datasource.jdbc.url=${DATABASE_URL}
-
-⸻
-
-🚀 Ejecutar backend
-
+```bash
 cd backend
+source .env
 mvn quarkus:dev
+```
 
-Backend:
-http://localhost:8080
+Espera hasta ver `Listening on: http://localhost:8080`.
 
-⸻
+Comprueba que responde:
 
-🚀 Ejecutar frontend
+```bash
+curl http://localhost:8080/api/salud
+```
 
+---
+
+### 3. Arrancar el frontend
+
+En otra terminal:
+
+```bash
 cd frontend
 npm install
 ng serve
+```
 
-Frontend:
-http://localhost:4200
+Abre el navegador en **http://localhost:4200**
 
-⸻
+---
 
-📡 Endpoints
+## Probar el flujo completo
 
-🔹 Salud
+**Desde el navegador:**
+1. Pega una URL de YouTube y pulsa "Procesar vídeo"
+2. Espera la barra de progreso (puede tardar 1–5 minutos)
+3. Cuando termine, escribe una pregunta para buscar semánticamente
 
-curl http://localhost:8080/api/salud
+**Desde la terminal:**
 
-⸻
-
-🔹 Transcribir vídeo
-
+```bash
+# Transcribir un vídeo
 curl -X POST http://localhost:8080/api/transcripciones/youtube \
   -H "Content-Type: application/json" \
   -d '{"urlVideo":"https://www.youtube.com/watch?v=YavB75vLSuc"}'
 
-⸻
-
-🔹 Obtener historial
-
+# Ver historial de vídeos
 curl http://localhost:8080/api/transcripciones
 
-⸻
+# Búsqueda semántica (sustituye {id} por el id devuelto)
+curl "http://localhost:8080/api/transcripciones/{id}/buscar?pregunta=¿De qué trata el vídeo?"
+```
 
-🔹 Obtener fragmentos
+---
 
-curl http://localhost:8080/api/transcripciones/{id}/fragmentos
+## Ejecutar los tests
 
-⸻
+Los tests no necesitan base de datos ni API key de OpenAI:
 
-🗄️ Base de datos
+```bash
+cd backend
+mvn test
+```
 
-Tabla: videos
+---
 
-* id
-* youtube_id
-* titulo
-* fecha_creacion
-* fuente_transcripcion
-
-⸻
-
-Tabla: fragmentos_transcripcion
-
-* id
-* video_id
-* texto
-* tiempo_inicio
-* tiempo_fin
-* orden_fragmento
-* embedding_json (TEXT)
-
-⸻
-
-🤖 Embeddings
-
-* Se generan automáticamente tras la transcripción
-* Cada fragmento tiene su embedding
-* Se almacenan como JSON
-
-Ejemplo:
-
-SELECT id, LEFT(embedding_json, 80)
-FROM fragmentos_transcripcion
-WHERE embedding_json IS NOT NULL;
-
-⸻
-
-⚠️ Problemas técnicos resueltos
-
-1. Formato JDBC incorrecto
-
-Quarkus no acepta postgresql://
-✔ Solución: usar jdbc:postgresql://
-
-⸻
-
-2. Auto-invocación CDI (@Transactional roto)
-
-Llamar this.metodo() rompe la transacción
-✔ Solución: mover lógica a otro bean
-
-⸻
-
-3. Nombre de columna incorrecto
-
-@Column(name = "embedding_json")
-
-⸻
-
-4. Fallos silenciosos de OpenAI
-
-* 401 por clave incorrecta
-* Ahora se loguea correctamente
-
-⸻
-
-🧪 Verificación
-
-SELECT COUNT(*) 
-FROM fragmentos_transcripcion 
-WHERE embedding_json IS NOT NULL;
-
-Debe devolver > 0
-
-⸻
-
-💡 Diseño clave
-
-* Embeddings guardados como TEXT (compatible con H2)
-* Migrable a pgvector
-* Fallos de OpenAI no rompen el flujo
-* Transacciones separadas
-
-⸻
-
-🔜 Próximos pasos
-
-1. Búsqueda semántica (pgvector)
-2. Endpoint de búsqueda
-3. Integración RAG
-4. UI de resultados
-5. Respuestas con timestamp
-
-⸻
-
-👨‍💻 Autor
+## Autor
 
 Iván Zheng
-
-⸻
-

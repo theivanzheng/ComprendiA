@@ -39,19 +39,42 @@ public class TranscripcionYoutubeServicio {
     String modoTranscripcion;
 
     public RespuestaTranscripcionDTO procesarUrlYoutube(String urlVideo) {
+        LOG.infof("[Tiempo] ===== Proceso total iniciado =====");
+        long inicioTotal = System.currentTimeMillis();
+
+        // Fase 1: validación y extracción de ID
+        long inicioFase = System.currentTimeMillis();
         validarUrlYoutube(urlVideo);
         String idVideo = extraerIdVideo(urlVideo);
+        LOG.infof("[Tiempo] Validación completada en %d ms — idVideo: %s",
+            System.currentTimeMillis() - inicioFase, idVideo);
 
+        // Fase 2: transcripción
+        inicioFase = System.currentTimeMillis();
         RespuestaTranscripcionDTO respuesta = switch (modoTranscripcion) {
             case "scraping" -> procesarConScraping(idVideo);
             case "whisper"  -> pipelineWhisperServicio.transcribirDesdeAudio(idVideo);
             default         -> construirTranscripcionSimulada(idVideo);
         };
+        LOG.infof("[Tiempo] Transcripción completada en %d ms — %d fragmentos",
+            System.currentTimeMillis() - inicioFase, respuesta.getFragmentos().size());
 
+        // Fase 3: persistencia
+        LOG.info("[Estado] Guardando en base de datos");
+        inicioFase = System.currentTimeMillis();
         List<FragmentoTranscripcion> fragmentosGuardados = transcripcionPersistenciaServicio.guardarTranscripcion(respuesta);
-        LOG.infof("[Embedding] Lanzando generarYGuardar con %d fragmentos persistidos", fragmentosGuardados.size());
+        LOG.infof("[Tiempo] Persistencia completada en %d ms — %d fragmentos guardados",
+            System.currentTimeMillis() - inicioFase, fragmentosGuardados.size());
+
+        // Fase 4: embeddings
+        LOG.infof("[Estado] Generando embeddings para %d fragmentos", fragmentosGuardados.size());
+        inicioFase = System.currentTimeMillis();
         embeddingFragmentoServicio.generarYGuardar(fragmentosGuardados);
-        LOG.infof("[Embedding] generarYGuardar finalizado para vídeo %s", idVideo);
+        LOG.infof("[Tiempo] Embeddings completados en %d ms",
+            System.currentTimeMillis() - inicioFase);
+
+        LOG.infof("[Tiempo] ===== Proceso total completado en %d ms =====",
+            System.currentTimeMillis() - inicioTotal);
         return respuesta;
     }
 

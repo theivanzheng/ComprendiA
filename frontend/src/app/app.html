@@ -1,37 +1,237 @@
-<main>
-  <h1>ComprendiA</h1>
-  <p class="subtitulo">Asistente inteligente para clases grabadas</p>
+<div class="app-shell">
 
-  <section class="formulario">
-    <input
-      #inputUrl
-      type="text"
-      placeholder="https://www.youtube.com/watch?v=..."
-    />
-    <button (click)="procesarVideo(inputUrl.value)" [disabled]="cargando">
-      Procesar vídeo
-    </button>
-  </section>
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-logo">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+      </div>
+      <span class="brand-name">ComprendiA</span>
+    </div>
 
-  @if (cargando) {
-    <p class="cargando">Procesando vídeo...</p>
-  }
+    <div class="sidebar-divider"></div>
 
-  @if (error) {
-    <p class="error">{{ error }}</p>
-  }
+    <div class="sidebar-section">
+      <p class="sidebar-label">Historial</p>
 
-  @if (transcripcion) {
-    <section class="resultado">
-      <h2>{{ transcripcion.titulo }}</h2>
-      <p class="id-video">ID: {{ transcripcion.idVideo }}</p>
+      @if (cargandoHistorial) {
+        <div class="skeleton-list">
+          <div class="skeleton-item"></div>
+          <div class="skeleton-item"></div>
+          <div class="skeleton-item"></div>
+        </div>
+      } @else if (historial.length === 0) {
+        <div class="sidebar-vacio-wrap">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="sidebar-vacio-icon">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <p class="sidebar-vacio">Sin vídeos aún</p>
+        </div>
+      } @else {
+        <ul class="lista-videos">
+          @for (video of historial; track video.id) {
+            <li
+              class="video-item"
+              [class.activo]="videoSeleccionado?.id === video.id"
+              (click)="seleccionarVideo(video)"
+            >
+              <div class="video-icon-wrap">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+              </div>
+              <div class="video-info">
+                <span class="video-titulo">{{ video.titulo }}</span>
+                <span class="video-meta">{{ video.numeroFragmentos }} fragmentos &middot; {{ video.fuenteTranscripcion }}</span>
+              </div>
+            </li>
+          }
+        </ul>
+      }
+    </div>
+  </aside>
 
-      @for (fragmento of transcripcion.fragmentos; track fragmento.tiempoInicio) {
-        <div class="fragmento">
-          <span class="tiempo">{{ fragmento.tiempoInicio }}s – {{ fragmento.tiempoFin }}s</span>
-          <p>{{ fragmento.texto }}</p>
+  <!-- Área principal -->
+  <main class="main-area">
+
+    <!-- Panel de nueva transcripción -->
+    <section class="panel panel-nueva">
+      <div class="panel-nueva-hero">
+        <div class="hero-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/>
+            <polygon points="10 8 16 12 10 16 10 8"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="panel-titulo">Nueva transcripción</h1>
+          <p class="panel-subtitulo">Pega la URL de un vídeo de YouTube para transcribirlo y analizarlo con IA</p>
+        </div>
+      </div>
+
+      <div class="input-hero">
+        <div class="input-hero-inner">
+          <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22.54 6.42A2.78 2.78 0 0 0 20.6 4.5C18.88 4 12 4 12 4s-6.88 0-8.6.5A2.78 2.78 0 0 0 1.46 6.42 29 29 0 0 0 1 12a29 29 0 0 0 .46 5.58A2.78 2.78 0 0 0 3.4 19.5C5.12 20 12 20 12 20s6.88 0 8.6-.5a2.78 2.78 0 0 0 1.94-1.92A29 29 0 0 0 23 12a29 29 0 0 0-.46-5.58z"/><polygon points="9.75 15.02 15.5 12 9.75 8.98 9.75 15.02"/>
+          </svg>
+          <input
+            class="url-input"
+            type="text"
+            [(ngModel)]="urlVideo"
+            placeholder="https://www.youtube.com/watch?v=..."
+            (keydown.enter)="procesarVideo()"
+          />
+          <button class="btn-primary" (click)="procesarVideo()" [disabled]="cargando">
+            @if (cargando) {
+              <span class="btn-spinner"></span>
+              Procesando…
+            } @else {
+              Procesar
+            }
+          </button>
+        </div>
+      </div>
+
+      @if (cargando) {
+        <div class="progreso-area">
+          <div class="progreso-barra">
+            <div class="progreso-fill"></div>
+          </div>
+          <p class="progreso-texto">
+            Descargando audio, transcribiendo con Whisper y generando embeddings…
+          </p>
+          @if (mostrarAviso180s) {
+            <div class="aviso aviso-critico">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              El proceso lleva más de 3 minutos. Revisa los logs del backend.
+            </div>
+          } @else if (mostrarAviso60s) {
+            <div class="aviso aviso-alerta">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              Más de 1 minuto procesando. El vídeo puede ser largo o la API está lenta.
+            </div>
+          }
+        </div>
+      }
+
+      @if (error) {
+        <div class="aviso aviso-error">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          {{ error }}
+        </div>
+      }
+
+      @if (transcripcion) {
+        <div class="resultado-nueva">
+          <div class="resultado-header">
+            <h2 class="resultado-titulo">{{ transcripcion.titulo }}</h2>
+            <span class="chip chip-accent">{{ transcripcion.fuenteTranscripcion }}</span>
+            <span class="chip chip-muted">{{ transcripcion.fragmentos.length }} fragmentos</span>
+          </div>
+          <div class="fragmentos-lista">
+            @for (fragmento of transcripcion.fragmentos; track fragmento.tiempoInicio) {
+              <div class="fragmento">
+                <span class="tiempo">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  {{ formatearTiempo(fragmento.tiempoInicio) }} – {{ formatearTiempo(fragmento.tiempoFin) }}
+                </span>
+                <p class="fragmento-texto">{{ fragmento.texto }}</p>
+              </div>
+            }
+          </div>
         </div>
       }
     </section>
-  }
-</main>
+
+    <!-- Panel de vídeo seleccionado -->
+    @if (videoSeleccionado) {
+      <section class="panel panel-video">
+        <div class="panel-video-header">
+          <div class="video-header-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </div>
+          <h2 class="panel-titulo">{{ videoSeleccionado.titulo }}</h2>
+          <span class="chip chip-accent">{{ videoSeleccionado.fuenteTranscripcion }}</span>
+        </div>
+
+        <!-- Búsqueda semántica -->
+        <div class="busqueda-area">
+          <p class="section-label">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            Búsqueda semántica
+          </p>
+          <div class="input-row">
+            <input
+              class="url-input"
+              type="text"
+              [(ngModel)]="pregunta"
+              placeholder="¿Qué quieres encontrar en este vídeo?"
+              (keydown.enter)="buscarEnVideo()"
+            />
+            <button class="btn-secondary" (click)="buscarEnVideo()" [disabled]="cargandoBusqueda">
+              @if (cargandoBusqueda) { Buscando… } @else { Buscar }
+            </button>
+          </div>
+
+          @if (errorBusqueda) {
+            <div class="aviso aviso-error">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              {{ errorBusqueda }}
+            </div>
+          }
+
+          @if (resultadosBusqueda.length > 0) {
+            <div class="resultados-semanticos">
+              @for (resultado of resultadosBusqueda; track resultado.orden) {
+                <div class="resultado-semantico">
+                  <div class="resultado-meta">
+                    <span class="tiempo">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      {{ formatearTiempo(resultado.tiempoInicio) }} – {{ formatearTiempo(resultado.tiempoFin) }}
+                    </span>
+                    <span class="similitud-badge">{{ formatearSimilitud(resultado.similitud) }}</span>
+                  </div>
+                  <p class="fragmento-texto">{{ resultado.texto }}</p>
+                </div>
+              }
+            </div>
+          }
+        </div>
+
+        <div class="panel-divider"></div>
+
+        <!-- Transcripción completa -->
+        <div class="transcripcion-area">
+          <p class="section-label">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            Transcripción completa
+          </p>
+          @if (cargandoFragmentos) {
+            <div class="skeleton-list">
+              <div class="skeleton-item tall"></div>
+              <div class="skeleton-item tall"></div>
+              <div class="skeleton-item tall"></div>
+            </div>
+          } @else if (fragmentos.length === 0) {
+            <p class="sidebar-vacio" style="padding: 0.5rem 0;">Sin fragmentos disponibles.</p>
+          } @else {
+            <div class="fragmentos-lista">
+              @for (fragmento of fragmentos; track fragmento.orden) {
+                <div class="fragmento">
+                  <span class="tiempo">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    {{ formatearTiempo(fragmento.tiempoInicio) }} – {{ formatearTiempo(fragmento.tiempoFin) }}
+                  </span>
+                  <p class="fragmento-texto">{{ fragmento.texto }}</p>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      </section>
+    }
+
+  </main>
+</div>

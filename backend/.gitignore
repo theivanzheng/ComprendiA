@@ -1,3 +1,5 @@
 target/
 .quarkus/
 *.class
+.env
+.env.*
