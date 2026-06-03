@@ -6,6 +6,7 @@ export type FaseTrabajo =
   | 'GUARDANDO'
   | 'EMBEDDINGS'
   | 'COMPLETADO'
+  | 'CANCELADO'
   | 'ERROR';
 
 export interface EstadoTrabajo {

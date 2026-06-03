@@ -9,6 +9,8 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 import java.util.List;
+import java.util.concurrent.CancellationException;
+import java.util.function.BooleanSupplier;
 
 @ApplicationScoped
 public class EmbeddingFragmentoServicio {
@@ -27,6 +29,10 @@ public class EmbeddingFragmentoServicio {
     private final ObjectMapper mapeadorJson = new ObjectMapper();
 
     public void generarYGuardar(List<FragmentoTranscripcion> fragmentos) {
+        generarYGuardar(fragmentos, () -> false);
+    }
+
+    public void generarYGuardar(List<FragmentoTranscripcion> fragmentos, BooleanSupplier cancelado) {
         if (!embeddingHabilitado) {
             LOG.info("[Embedding] Generación de embeddings deshabilitada (comprendia.embedding.habilitado=false)");
             return;
@@ -42,6 +48,10 @@ public class EmbeddingFragmentoServicio {
         long inicioTotal = System.currentTimeMillis();
         int exitos = 0;
         for (FragmentoTranscripcion fragmento : fragmentos) {
+            if (Thread.currentThread().isInterrupted() || cancelado.getAsBoolean()) {
+                throw new CancellationException("Trabajo cancelado durante la generacion de embeddings");
+            }
+
             LOG.infof("[Embedding] Procesando fragmento id=%s, texto=%s chars",
                 fragmento.id,
                 fragmento.texto != null ? fragmento.texto.length() : "NULL");

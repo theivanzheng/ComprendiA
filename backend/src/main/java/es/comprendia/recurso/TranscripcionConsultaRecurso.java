@@ -4,6 +4,8 @@ import es.comprendia.dto.FragmentoDTO;
 import es.comprendia.dto.RespuestaRagDTO;
 import es.comprendia.dto.ResultadoBusquedaDTO;
 import es.comprendia.dto.VideoResumenDTO;
+import es.comprendia.repositorio.CapituloVideoRepositorio;
+import es.comprendia.repositorio.ConceptoClaveVideoRepositorio;
 import es.comprendia.repositorio.VideoRepositorio;
 import es.comprendia.servicio.BusquedaSemanticaServicio;
 import es.comprendia.servicio.FragmentoConsultaServicio;
@@ -46,6 +48,12 @@ public class TranscripcionConsultaRecurso {
     @Inject
     VideoRepositorio videoRepositorio;
 
+    @Inject
+    CapituloVideoRepositorio capituloVideoRepositorio;
+
+    @Inject
+    ConceptoClaveVideoRepositorio conceptoClaveVideoRepositorio;
+
     @GET
     public List<VideoResumenDTO> obtenerTranscripciones(
         @QueryParam("page") @DefaultValue("0") int pagina,
@@ -57,6 +65,28 @@ public class TranscripcionConsultaRecurso {
     @Path("/{id}/fragmentos")
     public List<FragmentoDTO> obtenerFragmentos(@PathParam("id") Long id) {
         return fragmentoConsultaServicio.obtenerPorVideoId(id);
+    }
+
+    @GET
+    @Path("/{id}/capitulos")
+    public Response obtenerCapitulos(@PathParam("id") Long id) {
+        if (videoRepositorio.findById(id) == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                .entity(Map.of("error", "Vídeo no encontrado"))
+                .build();
+        }
+        return Response.ok(capituloVideoRepositorio.buscarPorVideoOrdenado(id)).build();
+    }
+
+    @GET
+    @Path("/{id}/conceptos")
+    public Response obtenerConceptos(@PathParam("id") Long id) {
+        if (videoRepositorio.findById(id) == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                .entity(Map.of("error", "Vídeo no encontrado"))
+                .build();
+        }
+        return Response.ok(conceptoClaveVideoRepositorio.buscarPorVideoOrdenado(id)).build();
     }
 
     @PATCH

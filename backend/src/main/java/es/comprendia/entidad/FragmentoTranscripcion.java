@@ -23,8 +23,8 @@ public class FragmentoTranscripcion extends PanacheEntity {
     @Column(name = "orden_fragmento")
     public Integer ordenFragmento;
 
-    // Tipo vector(1536) en PostgreSQL; se lee como String via JDBC y se escribe via SQL nativo
-    @Column(name = "embedding_json", columnDefinition = "vector(1536)", nullable = true,
+    // Tipo pgvector en PostgreSQL; en tests H2 lo mapea a un dominio VARCHAR.
+    @Column(name = "embedding_json", columnDefinition = "vector", nullable = true,
             insertable = false, updatable = false)
     public String embeddingJson;
 }

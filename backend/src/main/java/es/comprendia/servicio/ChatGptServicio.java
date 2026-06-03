@@ -41,6 +41,19 @@ public class ChatGptServicio {
         }
 
         String cuerpo = construirCuerpo(contexto, pregunta);
+        return enviarSolicitud(cuerpo);
+    }
+
+    public String completarEstructurado(String sistema, String usuario, int maxTokens) {
+        if (claveApi.isBlank()) {
+            throw new IllegalStateException("OPENAI_API_KEY no configurada");
+        }
+
+        String cuerpo = construirCuerpoEstructurado(sistema, usuario, maxTokens);
+        return enviarSolicitud(cuerpo);
+    }
+
+    private String enviarSolicitud(String cuerpo) {
         HttpRequest solicitud = HttpRequest.newBuilder()
             .uri(URI.create(URL_CHAT))
             .header("Authorization", "Bearer " + claveApi)
@@ -52,7 +65,7 @@ public class ChatGptServicio {
         try {
             long inicio = System.currentTimeMillis();
             HttpResponse<String> respuesta = clienteHttp.send(solicitud, HttpResponse.BodyHandlers.ofString());
-            LOG.infof("[RAG] GPT completado en %d ms (HTTP %d)", System.currentTimeMillis() - inicio, respuesta.statusCode());
+            LOG.infof("[GPT] Completado en %d ms (HTTP %d)", System.currentTimeMillis() - inicio, respuesta.statusCode());
 
             if (respuesta.statusCode() != 200) {
                 throw new IllegalStateException("Error de OpenAI (HTTP " + respuesta.statusCode() + "): " + respuesta.body());
@@ -75,12 +88,29 @@ public class ChatGptServicio {
                 "messages", List.of(
                     Map.of("role", "system", "content", SISTEMA),
                     Map.of("role", "user", "content",
-                        "Fragmentos relevantes de la transcripción:\n" + contexto +
+                        "Fragmentos relevantes de la transcripcion:\n" + contexto +
                         "\n\nPregunta: " + pregunta)
                 )
             ));
         } catch (Exception e) {
-            throw new IllegalStateException("Error al construir el cuerpo de la petición", e);
+            throw new IllegalStateException("Error al construir el cuerpo de la peticion", e);
+        }
+    }
+
+    private String construirCuerpoEstructurado(String sistema, String usuario, int maxTokens) {
+        try {
+            return mapeadorJson.writeValueAsString(Map.of(
+                "model", MODELO,
+                "temperature", 0.2,
+                "max_tokens", maxTokens,
+                "response_format", Map.of("type", "json_object"),
+                "messages", List.of(
+                    Map.of("role", "system", "content", sistema),
+                    Map.of("role", "user", "content", usuario)
+                )
+            ));
+        } catch (Exception e) {
+            throw new IllegalStateException("Error al construir el cuerpo de la peticion", e);
         }
     }
 

@@ -2,6 +2,67 @@
 
 Aplicación educativa que transcribe vídeos de YouTube, genera embeddings por fragmento y permite búsqueda semántica sobre el contenido.
 
+## Estructura funcional prevista
+
+- `Mis Cursos` representa el conjunto de cursos o asignaturas que tiene el usuario.
+- Dentro de cada curso, el usuario puede tener varias clases.
+- Cada una de esas clases corresponde a una grabación que ya haya sido procesada desde ComprendiA.
+- Esto permite agrupar las clases analizadas no solo como historial general, sino también organizadas por curso.
+- `Historial` representa todas las clases procesadas en orden cronológico, aunque todavía no estén categorizadas dentro de una asignatura.
+
+### Pantalla de clase analizada
+
+La pantalla que aparece después de pulsar `Analizar` sustituye por completo a la interfaz provisional de trabajo. Debe ser la vista principal para consultar una clase ya procesada o en procesamiento.
+
+**Distribución principal:**
+- Navbar superior igual que el de la home.
+- Zona izquierda con el reproductor del vídeo como elemento principal.
+- Timeline bajo el reproductor con capítulos.
+- Panel derecho fijo con `Asistente ComprendiA`.
+- Debajo del vídeo, metadatos editables de la clase.
+- Secciones inferiores para `Conceptos clave`, `Resumen de la clase` y `Clases relacionadas`.
+
+**Reproductor y capítulos:**
+- El reproductor debe incluir una timeline con capítulos.
+- Los capítulos serán una mezcla de capítulos generados automáticamente por IA y capítulos creados o ajustados manualmente por el usuario.
+- La transcripción completa no se mostrará al usuario en esta pantalla, porque su uso principal es interno para analizar el vídeo.
+- Los capítulos generados por IA se guardan como datos propios del vídeo, separados de los fragmentos de transcripción.
+- Los fragmentos siguen siendo la base para RAG, búsqueda semántica y análisis interno.
+
+**Asistente ComprendiA:**
+- El chat aparece a la derecha del vídeo.
+- El panel debe quedarse fijo al hacer scroll.
+- Debe incluir sugerencias iniciales, por ejemplo `Resume la clase`, `Explícame este concepto` o preguntas similares.
+- El usuario podrá lanzar preguntas desde los conceptos clave.
+
+**Metadatos editables:**
+- La asignatura y la fecha se muestran bajo el reproductor.
+- Ambos campos deben ser editables.
+- La asignatura sirve para categorizar la clase dentro de `Mis Cursos`.
+- `Mis Cursos` debe llevar a una página real con un grid de asignaturas.
+- Dentro de cada asignatura se mostrarán las clases procesadas que el usuario haya asignado a esa categoría.
+
+**Conceptos clave:**
+- Los conceptos clave se mostrarán como listado, no como tarjetas.
+- Cada concepto tendrá una definición corta.
+- Cada concepto tendrá un timestamp clicable para saltar al momento correspondiente del vídeo.
+- Cada concepto permitirá lanzar una pregunta al chat.
+- Los conceptos clave también se guardan como datos propios del vídeo y se consumen desde el frontend mediante endpoint.
+
+**Resumen de la clase:**
+- El resumen será corto.
+- Debe explicar cómo empieza la clase, qué se hace durante la sesión y con qué resultado termina.
+
+**Clases relacionadas:**
+- La sección se llamará `Clases relacionadas`.
+- De momento puede usar placeholders.
+- En el futuro mostrará clases de la misma asignatura con fechas cercanas al vídeo actual.
+- Al pulsar una clase relacionada, se abrirá esta misma pantalla de detalle sustituyendo la clase actual.
+
+**Estado de procesamiento:**
+- Si el vídeo todavía se está analizando, el estado debe aparecer bajo el reproductor de forma sutil.
+- Debe mostrar texto, fase actual y botón para cancelar.
+
 ---
 
 ## Requisitos previos
@@ -120,8 +181,11 @@ curl "http://localhost:8080/api/transcripciones/{id}/buscar?pregunta=¿De qué t
 | GET | `/api/salud` | Comprobación de salud |
 | POST | `/api/transcripciones/youtube` | Iniciar transcripción (async, devuelve `idTrabajo`) |
 | GET | `/api/transcripciones/youtube/{idTrabajo}` | Estado del trabajo en curso |
+| POST | `/api/transcripciones/youtube/{idTrabajo}/cancelar` | Cancelar un trabajo de análisis en curso |
 | GET | `/api/transcripciones` | Historial paginado de vídeos |
 | GET | `/api/transcripciones/{id}/fragmentos` | Fragmentos de un vídeo |
+| GET | `/api/transcripciones/{id}/capitulos` | Capítulos generados para navegar la clase |
+| GET | `/api/transcripciones/{id}/conceptos` | Conceptos clave detectados en la clase |
 | GET | `/api/transcripciones/{id}/buscar?pregunta=...` | Búsqueda semántica |
 
 ---
@@ -133,6 +197,18 @@ El endpoint `POST /api/transcripciones/youtube` devuelve un `idTrabajo` inmediat
 ```
 DESCARGANDO → TRANSCRIBIENDO → GUARDANDO → EMBEDDINGS → COMPLETADO
 ```
+
+El trabajo también puede terminar como `CANCELADO` o `ERROR`.
+
+La cancelación se realiza desde `POST /api/transcripciones/youtube/{idTrabajo}/cancelar`. El backend marca el trabajo como cancelado, interrumpe el hilo virtual asociado y el pipeline comprueba ese estado entre fases críticas. Si ya se había guardado parcialmente un vídeo, se eliminan sus conceptos, capítulos, fragmentos y el registro del vídeo.
+
+Después de generar embeddings, el backend ejecuta un análisis educativo de la clase:
+
+- Agrupa la transcripción en capítulos semánticos con `titulo`, `descripcion`, `tiempoInicio` y `tiempoFin`.
+- Extrae conceptos clave con `nombre`, `definicion` y `tiempoInicio`.
+- Guarda los capítulos en `capitulos_video`.
+- Guarda los conceptos en `conceptos_clave_video`.
+- Si OpenAI no está disponible o devuelve una respuesta inválida, se usa un fallback local basado en bloques temporales de fragmentos para no romper el procesamiento.
 
 ---
 

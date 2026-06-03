@@ -5,7 +5,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class EstadoTrabajoDTO {
 
-    public enum Fase { DESCARGANDO, TRANSCRIBIENDO, GUARDANDO, EMBEDDINGS, COMPLETADO, ERROR }
+    public enum Fase { DESCARGANDO, TRANSCRIBIENDO, GUARDANDO, EMBEDDINGS, COMPLETADO, CANCELADO, ERROR }
 
     private final String id;
     private volatile Fase fase;

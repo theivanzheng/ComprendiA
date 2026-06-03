@@ -1,312 +1,358 @@
-<div class="app-shell">
+@if (vistaActual === 'home') {
+  <div class="home-shell">
+    <div class="home-noise"></div>
 
-  <!-- Sidebar -->
-  <aside class="sidebar">
-    <div class="sidebar-brand">
-      <div class="brand-logo">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polygon points="5 3 19 12 5 21 5 3"/>
-        </svg>
-      </div>
-      <span class="brand-name">ComprendiA</span>
-    </div>
+    <header class="page-header">
+      <a class="brand" href="#" (click)="irAHome(); $event.preventDefault()">
+        <div class="brand-mark">C</div>
+        <span class="brand-text">ComprendiA</span>
+      </a>
 
-    <div class="sidebar-divider"></div>
+      <nav class="site-nav" aria-label="Principal">
+        <a class="nav-link activo" href="#" (click)="irAHome(); $event.preventDefault()">Inicio</a>
+        <a class="nav-link" href="#" (click)="irACursos(); $event.preventDefault()">Mis Cursos</a>
+        <a class="nav-link" href="#" (click)="irAHistorial(); $event.preventDefault()">Historial</a>
+      </nav>
+    </header>
 
-    <div class="sidebar-section">
-      <p class="sidebar-label">Historial</p>
-
-      @if (cargandoHistorial) {
-        <div class="skeleton-list">
-          <div class="skeleton-item"></div>
-          <div class="skeleton-item"></div>
-          <div class="skeleton-item"></div>
-        </div>
-      } @else if (historial.length === 0) {
-        <div class="sidebar-vacio-wrap">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="sidebar-vacio-icon">
-            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
-          <p class="sidebar-vacio">Sin vídeos aún</p>
-        </div>
-      } @else {
-        <ul class="lista-videos">
-          @for (video of historial; track video.id) {
-            <li
-              class="video-item"
-              [class.activo]="videoSeleccionado?.id === video.id"
-              (click)="seleccionarVideo(video)"
-            >
-              <div class="video-icon-wrap">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                  <polygon points="5 3 19 12 5 21 5 3"/>
-                </svg>
-              </div>
-              <div class="video-info">
-                <span class="video-titulo">{{ video.titulo }}</span>
-                <span class="video-meta">{{ video.numeroFragmentos }} fragmentos &middot; {{ video.fuenteTranscripcion }}</span>
-              </div>
-            </li>
-          }
-        </ul>
-      }
-    </div>
-  </aside>
-
-  <!-- Área principal -->
-  <main class="main-area">
-
-    <!-- Panel de nueva transcripción -->
-    <section class="panel panel-nueva">
-      <div class="panel-nueva-hero">
-        <div class="hero-icon">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/>
-            <polygon points="10 8 16 12 10 16 10 8"/>
-          </svg>
-        </div>
-        <div>
-          <h1 class="panel-titulo">Nueva transcripción</h1>
-          <p class="panel-subtitulo">Pega la URL de un vídeo de YouTube para transcribirlo y analizarlo con IA</p>
-        </div>
-      </div>
-
-      <div class="input-hero">
-        <div class="input-hero-inner">
-          <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M22.54 6.42A2.78 2.78 0 0 0 20.6 4.5C18.88 4 12 4 12 4s-6.88 0-8.6.5A2.78 2.78 0 0 0 1.46 6.42 29 29 0 0 0 1 12a29 29 0 0 0 .46 5.58A2.78 2.78 0 0 0 3.4 19.5C5.12 20 12 20 12 20s6.88 0 8.6-.5a2.78 2.78 0 0 0 1.94-1.92A29 29 0 0 0 23 12a29 29 0 0 0-.46-5.58z"/><polygon points="9.75 15.02 15.5 12 9.75 8.98 9.75 15.02"/>
-          </svg>
-          <input
-            class="url-input"
-            type="text"
-            [(ngModel)]="urlVideo"
-            placeholder="https://www.youtube.com/watch?v=..."
-            (keydown.enter)="procesarVideo()"
-          />
-          <button class="btn-primary" (click)="procesarVideo()" [disabled]="cargando">
-            @if (cargando) {
-              <span class="btn-spinner"></span>
-              Procesando…
-            } @else {
-              Procesar
-            }
-          </button>
-        </div>
-      </div>
-
-      @if (cargando) {
-        <div class="progreso-area">
-
-          <!-- Stepper de fases -->
-          <div class="fases-lista">
-            @for (paso of PASOS; track paso.fase) {
-              <div class="fase-item"
-                   [class.completada]="esFaseCompletada(paso.fase)"
-                   [class.activa]="faseActual === paso.fase"
-                   [class.pendiente]="esFasePendiente(paso.fase)">
-                <div class="fase-indicador">
-                  @if (esFaseCompletada(paso.fase)) {
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  } @else if (faseActual === paso.fase) {
-                    <span class="fase-spinner"></span>
-                  } @else {
-                    <span class="fase-dot"></span>
-                  }
-                </div>
-                <div class="fase-info">
-                  <span class="fase-nombre">{{ paso.label }}</span>
-                  @if (faseActual === paso.fase) {
-                    <span class="fase-descripcion">{{ paso.descripcion }}</span>
-                  }
-                </div>
-              </div>
-            }
-          </div>
-
-          @if (mostrarAviso180s) {
-            <div class="aviso aviso-critico">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-              El proceso lleva más de 3 minutos. Revisa los logs del backend.
-            </div>
-          } @else if (mostrarAviso60s) {
-            <div class="aviso aviso-alerta">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-              Más de 1 minuto procesando. El vídeo puede ser largo o la API está lenta.
-            </div>
-          }
-        </div>
-      }
-
-      @if (error) {
-        <div class="aviso aviso-error">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-          {{ error }}
-        </div>
-      }
-
-      @if (transcripcion) {
-        <div class="resultado-nueva">
-          <div class="resultado-header">
-            <h2 class="resultado-titulo">{{ transcripcion.titulo }}</h2>
-            <span class="chip chip-accent">{{ transcripcion.fuenteTranscripcion }}</span>
-            <span class="chip chip-muted">{{ transcripcion.fragmentos.length }} fragmentos</span>
-          </div>
-          <div class="fragmentos-lista">
-            @for (fragmento of transcripcion.fragmentos; track fragmento.tiempoInicio) {
-              <div class="fragmento">
-                <span class="tiempo">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                  {{ formatearTiempo(fragmento.tiempoInicio) }} – {{ formatearTiempo(fragmento.tiempoFin) }}
-                </span>
-                <p class="fragmento-texto">{{ fragmento.texto }}</p>
-              </div>
-            }
-          </div>
-        </div>
-      }
-    </section>
-
-    <!-- Panel de vídeo seleccionado -->
-    @if (videoSeleccionado) {
-      <section class="panel panel-video">
-        <!-- Embed YouTube -->
-        <div class="video-embed">
-          <iframe [src]="urlEmbed" frameborder="0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowfullscreen>
-          </iframe>
-        </div>
-
-        <!-- Cabecera con título editable -->
-        <div class="panel-video-header">
-          <div class="video-header-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          </div>
-
-          @if (editandoTitulo) {
-            <input
-              class="titulo-input"
-              type="text"
-              [(ngModel)]="tituloEdicion"
-              (keydown.enter)="guardarTitulo()"
-              (keydown.escape)="cancelarEdicionTitulo()"
-              autofocus
-            />
-            <button class="btn-titulo-accion btn-guardar" (click)="guardarTitulo()" [disabled]="guardandoTitulo" title="Guardar">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            </button>
-            <button class="btn-titulo-accion btn-cancelar" (click)="cancelarEdicionTitulo()" title="Cancelar">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          } @else {
-            <h2 class="panel-titulo">{{ videoSeleccionado.titulo }}</h2>
-            <button class="btn-editar-titulo" (click)="iniciarEdicionTitulo()" title="Editar título">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            </button>
-            <span class="chip chip-accent">{{ videoSeleccionado.fuenteTranscripcion }}</span>
-          }
-        </div>
-
-        <!-- Búsqueda semántica -->
-        <div class="busqueda-area">
-          <p class="section-label">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            Búsqueda semántica
+    <main class="home-main">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="hero-kicker">Tu clase, convertida en consulta y repaso</p>
+          <h1>Convierte tus clases grabadas en conocimiento organizado</h1>
+          <p class="hero-subtitle">
+            Analiza clases grabadas, encuentra conceptos clave y consulta cualquier
+            explicación mediante IA.
           </p>
-          <div class="input-row">
-            <input
-              class="url-input"
-              type="text"
-              [(ngModel)]="pregunta"
-              placeholder="Haz una pregunta sobre este vídeo…"
-              (keydown.enter)="buscarEnVideo()"
-            />
-            <button class="btn-secondary" (click)="buscarEnVideo()" [disabled]="cargandoBusqueda">
-              @if (cargandoBusqueda) {
-                <span class="btn-spinner"></span> Pensando…
-              } @else {
-                Preguntar
-              }
-            </button>
+        </div>
+
+        <div class="hero-input-wrap">
+          <div class="hero-input-shell">
+            <div class="hero-input">
+              <span class="input-symbol">↗</span>
+              <input
+                class="hero-url-input"
+                type="text"
+                [(ngModel)]="urlVideo"
+                placeholder="Pega aqui la URL de tu clase grabada"
+                (keydown.enter)="procesarVideo()"
+              />
+
+              <button class="hero-cta" type="button" (click)="procesarVideo()" [disabled]="cargando">
+                @if (cargando) {
+                  <span class="btn-spinner"></span>
+                  Analizando...
+                } @else {
+                  Analizar
+                }
+              </button>
+            </div>
           </div>
 
-          @if (errorBusqueda) {
-            <div class="aviso aviso-error">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-              {{ errorBusqueda }}
-            </div>
+          <p class="hero-note">
+            Compatible con clases online, conferencias y contenido educativo.
+          </p>
+        </div>
+
+        @if (error) {
+          <div class="status-message status-error">{{ error }}</div>
+        }
+      </section>
+
+      <section class="recent-classes" id="clases">
+        <div class="section-heading">
+          <h2>Clases recientes</h2>
+          @if (historial.length > 0) {
+            <button class="section-link" type="button" (click)="irAHistorial()">Ver todo</button>
           }
+        </div>
 
-          @if (respuestaRag) {
-            <!-- Respuesta generada -->
-            <div class="rag-respuesta">
-              <div class="rag-respuesta-header">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                Respuesta
+        @if (cargandoHistorial) {
+          <div class="recent-grid">
+            <div class="recent-card skeleton-card"></div>
+            <div class="recent-card skeleton-card"></div>
+            <div class="recent-card skeleton-card"></div>
+          </div>
+        } @else if (historial.length === 0) {
+          <div class="recent-empty">
+            <h3>Aun no has analizado ninguna clase</h3>
+            <p>Empieza pegando una grabacion arriba y ComprendiA construira el historial.</p>
+          </div>
+        } @else {
+          <div class="recent-grid">
+            @for (video of historial; track video.id; let index = $index) {
+              <article class="recent-card">
+                <button class="recent-card-hit" type="button" (click)="abrirClaseDesdeHome(video)">
+                  <div class="recent-visual" [class.visual-board]="index === 0" [class.visual-portrait]="index === 1" [class.visual-lecture]="index > 1">
+                    <div class="recent-overlay"></div>
+                    <div class="recent-pill">Clase {{ video.id }}</div>
+                    <div class="recent-card-content">
+                      <h3>{{ video.titulo }}</h3>
+                      <p>{{ video.numeroFragmentos }} fragmentos procesados</p>
+                      <div class="recent-meta">
+                        <span>Clase analizada</span>
+                        <span>{{ video.fuenteTranscripcion }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              </article>
+            }
+          </div>
+        }
+      </section>
+    </main>
+  </div>
+} @else {
+  <div class="detail-shell">
+    <header class="page-header">
+      <a class="brand" href="#" (click)="irAHome(); $event.preventDefault()">
+        <div class="brand-mark">C</div>
+        <span class="brand-text">ComprendiA</span>
+      </a>
+
+      <nav class="site-nav" aria-label="Principal">
+        <a class="nav-link" href="#" (click)="irAHome(); $event.preventDefault()">Inicio</a>
+        <a class="nav-link" [class.activo]="vistaActual === 'cursos'" href="#" (click)="irACursos(); $event.preventDefault()">Mis Cursos</a>
+        <a class="nav-link" [class.activo]="vistaActual === 'historial'" href="#" (click)="irAHistorial(); $event.preventDefault()">Historial</a>
+      </nav>
+    </header>
+
+    @if (vistaActual === 'clase') {
+      <main class="class-page">
+        <section class="class-layout">
+          <div class="class-main">
+            <section class="video-block">
+              <div class="video-heading">
+                <div>
+                  <p class="eyebrow">{{ fuenteClase }}</p>
+                  <h1>{{ tituloClase }}</h1>
+                </div>
+                <button class="small-action" type="button" (click)="irAHistorial()">Cambiar clase</button>
               </div>
-              <p class="rag-respuesta-texto">{{ respuestaRag.respuesta }}</p>
+
+              <div class="player-frame">
+                @if (urlEmbedClase) {
+                  <iframe
+                    [src]="urlEmbedClase"
+                    frameborder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowfullscreen>
+                  </iframe>
+                } @else {
+                  <div class="player-placeholder">
+                    <span>Video en preparacion</span>
+                  </div>
+                }
+              </div>
+
+              <div class="chapter-timeline" aria-label="Capitulos de la clase">
+                <div class="timeline-rail"></div>
+                @for (capitulo of capitulosClase; track $index) {
+                  <button class="chapter-item" type="button" (click)="saltarATiempo(capitulo.tiempo)">
+                    <span class="chapter-dot"></span>
+                    <span class="chapter-time">{{ formatearTiempo(capitulo.tiempo) }}</span>
+                    <strong>{{ capitulo.titulo }}</strong>
+                    <span class="chapter-description">{{ capitulo.descripcion }}</span>
+                    <em>{{ capitulo.origen }}</em>
+                  </button>
+                }
+              </div>
+            </section>
+
+            @if (cargando) {
+              <div class="processing-strip">
+                <div>
+                  <span class="processing-dot"></span>
+                  Analizando clase: {{ faseActualLabel }}
+                </div>
+                <button class="cancel-inline" type="button" (click)="cancelarAnalisis()">Cancelar</button>
+              </div>
+            }
+
+            @if (mensajeCancelacion) {
+              <div class="status-message status-warning">{{ mensajeCancelacion }}</div>
+            }
+
+            @if (error) {
+              <div class="status-message status-error">{{ error }}</div>
+            }
+
+            <section class="metadata-row">
+              <label class="meta-field">
+                <span>Asignatura</span>
+                <select [(ngModel)]="asignaturaClase">
+                  @for (asignatura of asignaturasDisponibles; track asignatura) {
+                    <option [value]="asignatura">{{ asignatura }}</option>
+                  }
+                </select>
+              </label>
+
+              <label class="meta-field">
+                <span>Fecha</span>
+                <input type="date" [(ngModel)]="fechaClase" />
+              </label>
+            </section>
+
+            <section class="content-section">
+              <h2>Conceptos clave</h2>
+              <div class="concept-list">
+                @for (concepto of conceptosClave; track $index) {
+                  <article class="concept-row">
+                    <button class="timestamp" type="button" (click)="saltarATiempo(concepto.tiempo)">
+                      {{ formatearTiempo(concepto.tiempo) }}
+                    </button>
+                    <div class="concept-copy">
+                      <h3>{{ concepto.nombre }}</h3>
+                      <p>{{ concepto.definicion }}</p>
+                    </div>
+                    <button class="ask-link" type="button" (click)="preguntarConcepto(concepto)">
+                      Preguntar
+                    </button>
+                  </article>
+                }
+              </div>
+            </section>
+
+            <section class="content-section summary-section">
+              <h2>Resumen de la clase</h2>
+              <p>{{ resumenClase }}</p>
+            </section>
+
+            <section class="content-section">
+              <div class="section-heading compact">
+                <h2>Clases relacionadas</h2>
+              </div>
+              <div class="related-grid">
+                @for (clase of clasesRelacionadas; track clase.titulo) {
+                  <article class="related-card">
+                    <div class="related-thumb"></div>
+                    <p>{{ clase.fecha }}</p>
+                    <h3>{{ clase.titulo }}</h3>
+                    <span>{{ clase.descripcion }}</span>
+                  </article>
+                }
+              </div>
+            </section>
+          </div>
+
+          <aside class="assistant-panel">
+            <div class="assistant-title">
+              <p>Asistente ComprendiA</p>
             </div>
 
-            <!-- Fuentes expandibles -->
-            <div class="rag-fuentes">
-              <button class="rag-fuentes-toggle" (click)="fuentesExpandidas = !fuentesExpandidas">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                {{ respuestaRag.fuentes.length }} fragmentos usados como contexto
-                <svg class="toggle-chevron" [class.expandido]="fuentesExpandidas" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-              </button>
+            <div class="suggestion-row">
+              @for (sugerencia of sugerenciasChat; track sugerencia) {
+                <button type="button" (click)="aplicarSugerenciaChat(sugerencia)">
+                  {{ sugerencia }}
+                </button>
+              }
+            </div>
 
-              @if (fuentesExpandidas) {
-                <div class="resultados-semanticos">
-                  @for (fuente of respuestaRag.fuentes; track fuente.orden) {
-                    <div class="resultado-semantico">
-                      <div class="resultado-meta">
-                        <span class="tiempo">
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                          {{ formatearTiempo(fuente.tiempoInicio) }} – {{ formatearTiempo(fuente.tiempoFin) }}
-                        </span>
-                        <span class="similitud-badge">{{ formatearSimilitud(fuente.similitud) }}</span>
-                      </div>
-                      <p class="fragmento-texto">{{ fuente.texto }}</p>
+            <div class="chat-thread">
+              @if (respuestaRag) {
+                <div class="message message-user">{{ pregunta }}</div>
+                <div class="message message-ai">
+                  <p>{{ respuestaRag.respuesta }}</p>
+                  <button class="source-toggle" type="button" (click)="fuentesExpandidas = !fuentesExpandidas">
+                    {{ respuestaRag.fuentes.length }} fuentes usadas
+                  </button>
+
+                  @if (fuentesExpandidas) {
+                    <div class="source-list">
+                      @for (fuente of respuestaRag.fuentes; track $index) {
+                        <button type="button" (click)="saltarATiempo(fuente.tiempoInicio)">
+                          {{ formatearTiempo(fuente.tiempoInicio) }} - {{ formatearTiempo(fuente.tiempoFin) }}
+                        </button>
+                      }
                     </div>
                   }
                 </div>
-              }
-            </div>
-          }
-        </div>
-
-        <div class="panel-divider"></div>
-
-        <!-- Transcripción completa -->
-        <div class="transcripcion-area">
-          <p class="section-label">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-            Transcripción completa
-          </p>
-          @if (cargandoFragmentos) {
-            <div class="skeleton-list">
-              <div class="skeleton-item tall"></div>
-              <div class="skeleton-item tall"></div>
-              <div class="skeleton-item tall"></div>
-            </div>
-          } @else if (fragmentos.length === 0) {
-            <p class="sidebar-vacio" style="padding: 0.5rem 0;">Sin fragmentos disponibles.</p>
-          } @else {
-            <div class="fragmentos-lista">
-              @for (fragmento of fragmentos; track fragmento.orden) {
-                <div class="fragmento">
-                  <span class="tiempo">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                    {{ formatearTiempo(fragmento.tiempoInicio) }} – {{ formatearTiempo(fragmento.tiempoFin) }}
-                  </span>
-                  <p class="fragmento-texto">{{ fragmento.texto }}</p>
+              } @else {
+                <div class="message message-ai">
+                  <p>Selecciona una sugerencia o pregunta por cualquier concepto de la clase.</p>
                 </div>
               }
+
+              @if (errorBusqueda) {
+                <div class="message message-error">{{ errorBusqueda }}</div>
+              }
             </div>
-          }
-        </div>
-      </section>
+
+            <div class="chat-input">
+              <input
+                type="text"
+                [(ngModel)]="pregunta"
+                placeholder="Introduce tu mensaje"
+                (keydown.enter)="buscarEnVideo()"
+              />
+              <button type="button" (click)="buscarEnVideo()" [disabled]="cargandoBusqueda || !videoSeleccionado">
+                @if (cargandoBusqueda) {
+                  ...
+                } @else {
+                  Enviar
+                }
+              </button>
+            </div>
+          </aside>
+        </section>
+      </main>
     }
 
-  </main>
-</div>
+    @if (vistaActual === 'cursos') {
+      <main class="library-page">
+        <div class="library-heading">
+          <p class="eyebrow">Mis Cursos</p>
+          <h1>Asignaturas</h1>
+          <span>Organiza las clases procesadas por categoria para volver a ellas sin depender solo del historial.</span>
+        </div>
+
+        <section class="course-grid">
+          @for (curso of cursosVista; track curso.nombre) {
+            <article class="course-card">
+              <div class="course-accent" [style.background]="curso.acento"></div>
+              <h2>{{ curso.nombre }}</h2>
+              <p>{{ curso.descripcion }}</p>
+              <span>{{ curso.clases }} clases procesadas</span>
+            </article>
+          }
+        </section>
+      </main>
+    }
+
+    @if (vistaActual === 'historial') {
+      <main class="library-page">
+        <div class="library-heading">
+          <p class="eyebrow">Historial</p>
+          <h1>Clases procesadas</h1>
+          <span>Todas las clases aparecen en orden cronologico aunque no esten asignadas a un curso.</span>
+        </div>
+
+        @if (cargandoHistorial) {
+          <div class="history-list">
+            <div class="history-row skeleton-card"></div>
+            <div class="history-row skeleton-card"></div>
+            <div class="history-row skeleton-card"></div>
+          </div>
+        } @else if (historial.length === 0) {
+          <div class="empty-state">
+            <h2>No hay clases procesadas</h2>
+            <p>Cuando analices una grabacion, aparecera aqui.</p>
+          </div>
+        } @else {
+          <section class="history-list">
+            @for (video of historial; track video.id) {
+              <button class="history-row" type="button" (click)="seleccionarVideo(video)">
+                <div>
+                  <h2>{{ video.titulo }}</h2>
+                  <p>{{ video.numeroFragmentos }} fragmentos · {{ video.fuenteTranscripcion }}</p>
+                </div>
+                <span>{{ video.fechaCreacion }}</span>
+              </button>
+            }
+          </section>
+        }
+      </main>
+    }
+  </div>
+}

@@ -13,43 +13,42 @@ class TranscripcionYoutubeRecursoTest {
     private static final String ENDPOINT = "/api/transcripciones/youtube";
 
     @Test
-    void urlValidaYoutubeComConWww_devuelve200() {
+    void urlValidaYoutubeComConWww_devuelve202() {
         given()
             .contentType(ContentType.JSON)
             .body("{\"urlVideo\": \"https://www.youtube.com/watch?v=abc123\"}")
         .when()
             .post(ENDPOINT)
         .then()
-            .statusCode(200)
-            .body("idVideo", equalTo("abc123"))
-            .body("titulo", notNullValue())
-            .body("fragmentos", not(empty()));
+            .statusCode(202)
+            .body("idTrabajo", notNullValue())
+            .body("idTrabajo", not(emptyString()));
     }
 
     @Test
-    void urlValidaYoutubeComSinWww_devuelve200() {
+    void urlValidaYoutubeComSinWww_devuelve202() {
         given()
             .contentType(ContentType.JSON)
             .body("{\"urlVideo\": \"https://youtube.com/watch?v=xyz456\"}")
         .when()
             .post(ENDPOINT)
         .then()
-            .statusCode(200)
-            .body("idVideo", equalTo("xyz456"))
-            .body("fragmentos", not(empty()));
+            .statusCode(202)
+            .body("idTrabajo", notNullValue())
+            .body("idTrabajo", not(emptyString()));
     }
 
     @Test
-    void urlValidaYoutubeBe_devuelve200() {
+    void urlValidaYoutubeBe_devuelve202() {
         given()
             .contentType(ContentType.JSON)
             .body("{\"urlVideo\": \"https://youtu.be/def789\"}")
         .when()
             .post(ENDPOINT)
         .then()
-            .statusCode(200)
-            .body("idVideo", equalTo("def789"))
-            .body("fragmentos", not(empty()));
+            .statusCode(202)
+            .body("idTrabajo", notNullValue())
+            .body("idTrabajo", not(emptyString()));
     }
 
     @Test

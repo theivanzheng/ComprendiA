@@ -14,6 +14,8 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 @ApplicationScoped
@@ -37,6 +39,9 @@ public class TranscripcionYoutubeServicio {
     EmbeddingFragmentoServicio embeddingFragmentoServicio;
 
     @Inject
+    AnalisisClaseServicio analisisClaseServicio;
+
+    @Inject
     @ConfigProperty(name = "comprendia.transcripcion.modo", defaultValue = "simulada")
     String modoTranscripcion;
 
@@ -47,51 +52,97 @@ public class TranscripcionYoutubeServicio {
     }
 
     public RespuestaTranscripcionDTO procesarUrlYoutube(String urlVideo, Consumer<Fase> actualizarFase) {
+        return procesarUrlYoutube(urlVideo, actualizarFase, () -> false);
+    }
+
+    public RespuestaTranscripcionDTO procesarUrlYoutube(
+        String urlVideo,
+        Consumer<Fase> actualizarFase,
+        BooleanSupplier cancelado) {
         LOG.infof("[Tiempo] ===== Proceso total iniciado =====");
         long inicioTotal = System.currentTimeMillis();
+        Long idVideoGuardado = null;
 
-        // Fase 1: validación y extracción de ID
-        long inicioFase = System.currentTimeMillis();
-        validarUrlYoutube(urlVideo);
-        String idVideo = extraerIdVideo(urlVideo);
-        LOG.infof("[Tiempo] Validación completada en %d ms — idVideo: %s",
-            System.currentTimeMillis() - inicioFase, idVideo);
+        try {
+            verificarCancelacion(cancelado);
 
-        // Fase 2: transcripción (el pipeline Whisper emite DESCARGANDO y TRANSCRIBIENDO)
-        inicioFase = System.currentTimeMillis();
-        RespuestaTranscripcionDTO respuesta = switch (modoTranscripcion) {
-            case "scraping" -> {
-                actualizarFase.accept(Fase.TRANSCRIBIENDO);
-                yield procesarConScraping(idVideo);
+            // Fase 1: validación y extracción de ID
+            long inicioFase = System.currentTimeMillis();
+            validarUrlYoutube(urlVideo);
+            String idVideo = extraerIdVideo(urlVideo);
+            LOG.infof("[Tiempo] Validación completada en %d ms — idVideo: %s",
+                System.currentTimeMillis() - inicioFase, idVideo);
+
+            verificarCancelacion(cancelado);
+
+            // Fase 2: transcripción (el pipeline Whisper emite DESCARGANDO y TRANSCRIBIENDO)
+            inicioFase = System.currentTimeMillis();
+            RespuestaTranscripcionDTO respuesta = switch (modoTranscripcion) {
+                case "scraping" -> {
+                    actualizarFase.accept(Fase.TRANSCRIBIENDO);
+                    yield procesarConScraping(idVideo);
+                }
+                case "whisper" -> pipelineWhisperServicio.transcribirDesdeAudio(idVideo, actualizarFase);
+                default -> {
+                    actualizarFase.accept(Fase.TRANSCRIBIENDO);
+                    yield construirTranscripcionSimulada(idVideo);
+                }
+            };
+            LOG.infof("[Tiempo] Transcripción completada en %d ms — %d fragmentos",
+                System.currentTimeMillis() - inicioFase, respuesta.getFragmentos().size());
+
+            verificarCancelacion(cancelado);
+
+            // Fase 3: persistencia
+            LOG.info("[Estado] Guardando en base de datos");
+            actualizarFase.accept(Fase.GUARDANDO);
+            inicioFase = System.currentTimeMillis();
+            List<FragmentoTranscripcion> fragmentosGuardados = transcripcionPersistenciaServicio.guardarTranscripcion(respuesta);
+            idVideoGuardado = fragmentosGuardados.isEmpty() ? null : fragmentosGuardados.get(0).video.id;
+            LOG.infof("[Tiempo] Persistencia completada en %d ms — %d fragmentos guardados",
+                System.currentTimeMillis() - inicioFase, fragmentosGuardados.size());
+
+            verificarCancelacion(cancelado);
+
+            // Fase 4: embeddings
+            LOG.infof("[Estado] Generando embeddings para %d fragmentos", fragmentosGuardados.size());
+            actualizarFase.accept(Fase.EMBEDDINGS);
+            inicioFase = System.currentTimeMillis();
+            embeddingFragmentoServicio.generarYGuardar(fragmentosGuardados, cancelado);
+            LOG.infof("[Tiempo] Embeddings completados en %d ms",
+                System.currentTimeMillis() - inicioFase);
+
+            verificarCancelacion(cancelado);
+
+            LOG.info("[Estado] Generando capitulos y conceptos clave");
+            inicioFase = System.currentTimeMillis();
+            analisisClaseServicio.generarYGuardar(idVideoGuardado, fragmentosGuardados);
+            LOG.infof("[Tiempo] Analisis de clase completado en %d ms",
+                System.currentTimeMillis() - inicioFase);
+
+            LOG.infof("[Tiempo] ===== Proceso total completado en %d ms =====",
+                System.currentTimeMillis() - inicioTotal);
+            return respuesta;
+        } catch (CancellationException e) {
+            if (idVideoGuardado != null) {
+                transcripcionPersistenciaServicio.eliminarVideoCompleto(idVideoGuardado);
             }
-            case "whisper" -> pipelineWhisperServicio.transcribirDesdeAudio(idVideo, actualizarFase);
-            default -> {
-                actualizarFase.accept(Fase.TRANSCRIBIENDO);
-                yield construirTranscripcionSimulada(idVideo);
+            throw e;
+        } catch (RuntimeException e) {
+            if (Thread.currentThread().isInterrupted() || cancelado.getAsBoolean()) {
+                if (idVideoGuardado != null) {
+                    transcripcionPersistenciaServicio.eliminarVideoCompleto(idVideoGuardado);
+                }
+                throw new CancellationException("Trabajo cancelado por el usuario");
             }
-        };
-        LOG.infof("[Tiempo] Transcripción completada en %d ms — %d fragmentos",
-            System.currentTimeMillis() - inicioFase, respuesta.getFragmentos().size());
+            throw e;
+        }
+    }
 
-        // Fase 3: persistencia
-        LOG.info("[Estado] Guardando en base de datos");
-        actualizarFase.accept(Fase.GUARDANDO);
-        inicioFase = System.currentTimeMillis();
-        List<FragmentoTranscripcion> fragmentosGuardados = transcripcionPersistenciaServicio.guardarTranscripcion(respuesta);
-        LOG.infof("[Tiempo] Persistencia completada en %d ms — %d fragmentos guardados",
-            System.currentTimeMillis() - inicioFase, fragmentosGuardados.size());
-
-        // Fase 4: embeddings
-        LOG.infof("[Estado] Generando embeddings para %d fragmentos", fragmentosGuardados.size());
-        actualizarFase.accept(Fase.EMBEDDINGS);
-        inicioFase = System.currentTimeMillis();
-        embeddingFragmentoServicio.generarYGuardar(fragmentosGuardados);
-        LOG.infof("[Tiempo] Embeddings completados en %d ms",
-            System.currentTimeMillis() - inicioFase);
-
-        LOG.infof("[Tiempo] ===== Proceso total completado en %d ms =====",
-            System.currentTimeMillis() - inicioTotal);
-        return respuesta;
+    private void verificarCancelacion(BooleanSupplier cancelado) {
+        if (Thread.currentThread().isInterrupted() || cancelado.getAsBoolean()) {
+            throw new CancellationException("Trabajo cancelado por el usuario");
+        }
     }
 
     private RespuestaTranscripcionDTO procesarConScraping(String idVideo) {

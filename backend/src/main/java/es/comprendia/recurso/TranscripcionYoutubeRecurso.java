@@ -46,19 +46,27 @@ public class TranscripcionYoutubeRecurso {
         String idTrabajo = trabajoServicio.crearTrabajo();
         String urlVideo = solicitud.getUrlVideo();
 
-        Thread.ofVirtual().start(() -> {
+        Thread hilo = Thread.ofVirtual().start(() -> {
             try {
                 var resultado = transcripcionYoutubeServicio.procesarUrlYoutube(
                     urlVideo,
-                    fase -> trabajoServicio.actualizarFase(idTrabajo, fase)
+                    fase -> trabajoServicio.actualizarFase(idTrabajo, fase),
+                    () -> trabajoServicio.estaCancelado(idTrabajo)
                 );
                 trabajoServicio.completar(idTrabajo, resultado);
             } catch (Exception e) {
+                if (trabajoServicio.estaCancelado(idTrabajo)) {
+                    LOG.infof("[Trabajo %s] Pipeline cancelado por el usuario", idTrabajo);
+                    return;
+                }
                 LOG.errorf(e, "[Trabajo %s] Error en pipeline: %s", idTrabajo, e.getMessage());
                 trabajoServicio.marcarError(idTrabajo,
                     e.getMessage() != null ? e.getMessage() : "Error interno del servidor");
+            } finally {
+                trabajoServicio.finalizarHilo(idTrabajo);
             }
         });
+        trabajoServicio.registrarHilo(idTrabajo, hilo);
 
         return Response.accepted(Map.of("idTrabajo", idTrabajo)).build();
     }
@@ -72,6 +80,19 @@ public class TranscripcionYoutubeRecurso {
             .orElse(Response.status(Response.Status.NOT_FOUND)
                 .entity(Map.of("error", "Trabajo no encontrado: " + idTrabajo))
                 .build());
+    }
+
+    @POST
+    @Path("/{idTrabajo}/cancelar")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response cancelarTrabajo(@PathParam("idTrabajo") String idTrabajo) {
+        boolean encontrado = trabajoServicio.cancelar(idTrabajo);
+        if (!encontrado) {
+            return Response.status(Response.Status.NOT_FOUND)
+                .entity(Map.of("error", "Trabajo no encontrado: " + idTrabajo))
+                .build();
+        }
+        return Response.ok(Map.of("idTrabajo", idTrabajo, "fase", "CANCELADO")).build();
     }
 
     private Response error400(String mensaje) {

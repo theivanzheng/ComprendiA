@@ -8,6 +8,8 @@ import { FragmentoVideo } from '../modelos/fragmento-video';
 import { ResultadoBusqueda } from '../modelos/resultado-busqueda';
 import { EstadoTrabajo } from '../modelos/estado-trabajo';
 import { RespuestaRag } from '../modelos/respuesta-rag';
+import { CapituloVideo } from '../modelos/capitulo-video';
+import { ConceptoClaveVideo } from '../modelos/concepto-clave-video';
 
 @Injectable({ providedIn: 'root' })
 export class TranscripcionServicio {
@@ -29,6 +31,13 @@ export class TranscripcionServicio {
     );
   }
 
+  cancelarProcesamiento(idTrabajo: string): Observable<{ idTrabajo: string; fase: string }> {
+    return this.http.post<{ idTrabajo: string; fase: string }>(
+      `${this.urlBase}/transcripciones/youtube/${idTrabajo}/cancelar`,
+      {}
+    );
+  }
+
   actualizarTitulo(id: number, titulo: string): Observable<void> {
     return this.http.patch<void>(
       `${this.urlBase}/transcripciones/${id}/titulo`,
@@ -42,6 +51,14 @@ export class TranscripcionServicio {
 
   obtenerFragmentos(id: number): Observable<FragmentoVideo[]> {
     return this.http.get<FragmentoVideo[]>(`${this.urlBase}/transcripciones/${id}/fragmentos`);
+  }
+
+  obtenerCapitulos(id: number): Observable<CapituloVideo[]> {
+    return this.http.get<CapituloVideo[]>(`${this.urlBase}/transcripciones/${id}/capitulos`);
+  }
+
+  obtenerConceptos(id: number): Observable<ConceptoClaveVideo[]> {
+    return this.http.get<ConceptoClaveVideo[]>(`${this.urlBase}/transcripciones/${id}/conceptos`);
   }
 
   buscar(id: number, pregunta: string): Observable<ResultadoBusqueda[]> {

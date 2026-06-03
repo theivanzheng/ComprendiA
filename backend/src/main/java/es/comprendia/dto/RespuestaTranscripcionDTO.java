@@ -5,6 +5,7 @@ import java.util.List;
 public class RespuestaTranscripcionDTO {
 
     private String idVideo;
+    private Long idTranscripcion;
     private String titulo;
     private List<FragmentoTranscripcionDTO> fragmentos;
     private String fuenteTranscripcion;
@@ -20,6 +21,14 @@ public class RespuestaTranscripcionDTO {
 
     public String getIdVideo() {
         return idVideo;
+    }
+
+    public Long getIdTranscripcion() {
+        return idTranscripcion;
+    }
+
+    public void setIdTranscripcion(Long idTranscripcion) {
+        this.idTranscripcion = idTranscripcion;
     }
 
     public String getTitulo() {
