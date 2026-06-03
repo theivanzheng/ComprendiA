@@ -147,6 +147,28 @@ mvn test
 
 ---
 
+## Ideas para implementaciones futuras
+
+### Reproductor integrado con marcas de capítulo IA
+
+El objetivo es sustituir el embed básico de YouTube por un reproductor interactivo donde la barra de progreso muestre marcas visuales en los timestamps de cada fragmento analizado por la IA —similar a los capítulos de YouTube, pero generados automáticamente a partir de la transcripción.
+
+**Comportamiento esperado:**
+- El vídeo se reproduce directamente en la aplicación
+- La barra de progreso tiene marcas de color en cada fragmento indexado
+- Al llegar a una marca, se resalta automáticamente el fragmento correspondiente en la transcripción
+- Al hacer clic en un fragmento de la transcripción, el vídeo salta a ese timestamp
+
+**Tecnología necesaria:**
+- YouTube IFrame API (`YT.Player`) para controlar la reproducción desde JavaScript
+- Evento `onStateChange` y `getCurrentTime()` para sincronizar posición con fragmentos
+- SVG o Canvas overlay sobre la barra de progreso nativa para pintar las marcas
+- Angular service que suscriba al progreso del reproductor y actualice el fragmento activo
+
+**Datos ya disponibles:** cada fragmento tiene `tiempoInicio` y `tiempoFin` en segundos, listos para calcular la posición proporcional sobre la barra.
+
+---
+
 ## Autor
 
 Iván Zheng

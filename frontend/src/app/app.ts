@@ -1,4 +1,5 @@
 import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';
 import { TranscripcionServicio } from './servicios/transcripcion.servicio';
 import { RespuestaTranscripcion } from './modelos/respuesta-transcripcion';
@@ -6,6 +7,7 @@ import { VideoResumen } from './modelos/video-resumen';
 import { FragmentoVideo } from './modelos/fragmento-video';
 import { ResultadoBusqueda } from './modelos/resultado-busqueda';
 import { FaseTrabajo } from './modelos/estado-trabajo';
+import { RespuestaRag } from './modelos/respuesta-rag';
 
 interface PasoProcesamiento {
   fase: FaseTrabajo;
@@ -37,8 +39,14 @@ export class App implements OnInit, OnDestroy {
   protected resultadosBusqueda: ResultadoBusqueda[] = [];
   protected cargandoBusqueda = false;
   protected errorBusqueda = '';
+  protected respuestaRag: RespuestaRag | null = null;
+  protected fuentesExpandidas = false;
 
   protected faseActual: FaseTrabajo | null = null;
+
+  protected editandoTitulo = false;
+  protected tituloEdicion = '';
+  protected guardandoTitulo = false;
   protected tiempoProcesando = 0;
   protected mostrarAviso60s = false;
   protected mostrarAviso180s = false;
@@ -59,7 +67,8 @@ export class App implements OnInit, OnDestroy {
 
   constructor(
     private transcripcionServicio: TranscripcionServicio,
-    private cd: ChangeDetectorRef
+    private cd: ChangeDetectorRef,
+    private sanitizer: DomSanitizer
   ) {}
 
   ngOnInit(): void {
@@ -106,12 +115,53 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
+  get urlEmbed(): SafeResourceUrl | null {
+    if (!this.videoSeleccionado?.youtubeId) return null;
+    return this.sanitizer.bypassSecurityTrustResourceUrl(
+      `https://www.youtube.com/embed/${this.videoSeleccionado.youtubeId}`
+    );
+  }
+
+  iniciarEdicionTitulo(): void {
+    if (!this.videoSeleccionado) return;
+    this.tituloEdicion = this.videoSeleccionado.titulo;
+    this.editandoTitulo = true;
+    this.cd.detectChanges();
+  }
+
+  guardarTitulo(): void {
+    if (!this.videoSeleccionado || !this.tituloEdicion.trim()) return;
+    this.guardandoTitulo = true;
+    this.transcripcionServicio.actualizarTitulo(this.videoSeleccionado.id, this.tituloEdicion.trim()).subscribe({
+      next: () => {
+        this.videoSeleccionado!.titulo = this.tituloEdicion.trim();
+        const enHistorial = this.historial.find(v => v.id === this.videoSeleccionado!.id);
+        if (enHistorial) enHistorial.titulo = this.tituloEdicion.trim();
+        this.editandoTitulo = false;
+        this.guardandoTitulo = false;
+        this.cd.detectChanges();
+      },
+      error: () => {
+        this.guardandoTitulo = false;
+        this.cd.detectChanges();
+      }
+    });
+  }
+
+  cancelarEdicionTitulo(): void {
+    this.editandoTitulo = false;
+    this.cd.detectChanges();
+  }
+
   seleccionarVideo(video: VideoResumen): void {
     this.videoSeleccionado = video;
     this.fragmentos = [];
     this.resultadosBusqueda = [];
+    this.respuestaRag = null;
     this.pregunta = '';
     this.errorBusqueda = '';
+    this.editandoTitulo = false;
+    this.fuentesExpandidas = false;
     this.cargandoFragmentos = true;
 
     this.transcripcionServicio.obtenerFragmentos(video.id).subscribe({
@@ -131,16 +181,17 @@ export class App implements OnInit, OnDestroy {
     if (!this.pregunta.trim() || !this.videoSeleccionado) return;
     this.cargandoBusqueda = true;
     this.errorBusqueda = '';
-    this.resultadosBusqueda = [];
+    this.respuestaRag = null;
+    this.fuentesExpandidas = false;
 
-    this.transcripcionServicio.buscar(this.videoSeleccionado.id, this.pregunta).subscribe({
-      next: (resultados) => {
-        this.resultadosBusqueda = resultados;
+    this.transcripcionServicio.responder(this.videoSeleccionado.id, this.pregunta).subscribe({
+      next: (respuesta) => {
+        this.respuestaRag = respuesta;
         this.cargandoBusqueda = false;
         this.cd.detectChanges();
       },
       error: (err) => {
-        this.errorBusqueda = err.error?.error ?? 'Error en la búsqueda';
+        this.errorBusqueda = err.error?.error ?? 'Error al generar la respuesta';
         this.cargandoBusqueda = false;
         this.cd.detectChanges();
       }

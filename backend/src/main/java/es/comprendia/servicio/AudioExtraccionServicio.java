@@ -17,6 +17,39 @@ public class AudioExtraccionServicio {
     private static final String DIRECTORIO_TEMPORAL = "/tmp/comprendia/";
     private static final int TIMEOUT_SEGUNDOS = 120;
 
+    public String obtenerTitulo(String idVideo) {
+        String urlVideo = "https://www.youtube.com/watch?v=" + idVideo;
+        List<String> comando = List.of(
+            "yt-dlp", "--print", "%(title)s", "--no-download", "--no-playlist", urlVideo
+        );
+        try {
+            ProcessBuilder builder = new ProcessBuilder(comando);
+            builder.redirectErrorStream(true);
+            Process proceso = builder.start();
+
+            StringBuilder salida = new StringBuilder();
+            Thread lector = new Thread(() -> {
+                try (var s = proceso.getInputStream()) {
+                    salida.append(new String(s.readAllBytes()).strip());
+                } catch (IOException ignorado) {}
+            });
+            lector.setDaemon(true);
+            lector.start();
+
+            boolean termino = proceso.waitFor(30, TimeUnit.SECONDS);
+            lector.join(2000);
+
+            if (!termino || proceso.exitValue() != 0 || salida.toString().isBlank()) {
+                return "Vídeo " + idVideo;
+            }
+            // Solo la primera línea, por si yt-dlp añade avisos
+            return salida.toString().lines().findFirst().orElse("Vídeo " + idVideo);
+        } catch (Exception e) {
+            LOG.warnf("No se pudo obtener el título del vídeo %s: %s", idVideo, e.getMessage());
+            return "Vídeo " + idVideo;
+        }
+    }
+
     public Path extraerAudio(String idVideo) {
         LOG.infof("[Estado] Iniciando descarga de audio para: %s", idVideo);
         long inicio = System.currentTimeMillis();

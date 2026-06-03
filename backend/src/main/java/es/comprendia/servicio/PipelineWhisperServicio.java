@@ -36,6 +36,8 @@ public class PipelineWhisperServicio {
         Path archivoAudio = null;
         try {
             actualizarFase.accept(Fase.DESCARGANDO);
+            String titulo = audioExtraccionServicio.obtenerTitulo(idVideo);
+            LOG.infof("[Estado] Título obtenido: %s", titulo);
             archivoAudio = audioExtraccionServicio.extraerAudio(idVideo);
 
             LOG.info("[Estado] Iniciando transcripción Whisper");
@@ -45,7 +47,7 @@ public class PipelineWhisperServicio {
             LOG.infof("[Estado] Transcripción recibida — %d fragmentos en %d ms total (descarga + Whisper)",
                 fragmentos.size(), System.currentTimeMillis() - inicioTotal);
 
-            return new RespuestaTranscripcionDTO(idVideo, "Transcripción de audio - " + idVideo, fragmentos, "REAL");
+            return new RespuestaTranscripcionDTO(idVideo, titulo, fragmentos, "REAL");
         } finally {
             eliminarArchivoTemporal(archivoAudio);
         }

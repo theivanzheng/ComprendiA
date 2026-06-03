@@ -169,12 +169,42 @@
     <!-- Panel de vídeo seleccionado -->
     @if (videoSeleccionado) {
       <section class="panel panel-video">
+        <!-- Embed YouTube -->
+        <div class="video-embed">
+          <iframe [src]="urlEmbed" frameborder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowfullscreen>
+          </iframe>
+        </div>
+
+        <!-- Cabecera con título editable -->
         <div class="panel-video-header">
           <div class="video-header-icon">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           </div>
-          <h2 class="panel-titulo">{{ videoSeleccionado.titulo }}</h2>
-          <span class="chip chip-accent">{{ videoSeleccionado.fuenteTranscripcion }}</span>
+
+          @if (editandoTitulo) {
+            <input
+              class="titulo-input"
+              type="text"
+              [(ngModel)]="tituloEdicion"
+              (keydown.enter)="guardarTitulo()"
+              (keydown.escape)="cancelarEdicionTitulo()"
+              autofocus
+            />
+            <button class="btn-titulo-accion btn-guardar" (click)="guardarTitulo()" [disabled]="guardandoTitulo" title="Guardar">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+            <button class="btn-titulo-accion btn-cancelar" (click)="cancelarEdicionTitulo()" title="Cancelar">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          } @else {
+            <h2 class="panel-titulo">{{ videoSeleccionado.titulo }}</h2>
+            <button class="btn-editar-titulo" (click)="iniciarEdicionTitulo()" title="Editar título">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
+            <span class="chip chip-accent">{{ videoSeleccionado.fuenteTranscripcion }}</span>
+          }
         </div>
 
         <!-- Búsqueda semántica -->
@@ -188,11 +218,15 @@
               class="url-input"
               type="text"
               [(ngModel)]="pregunta"
-              placeholder="¿Qué quieres encontrar en este vídeo?"
+              placeholder="Haz una pregunta sobre este vídeo…"
               (keydown.enter)="buscarEnVideo()"
             />
             <button class="btn-secondary" (click)="buscarEnVideo()" [disabled]="cargandoBusqueda">
-              @if (cargandoBusqueda) { Buscando… } @else { Buscar }
+              @if (cargandoBusqueda) {
+                <span class="btn-spinner"></span> Pensando…
+              } @else {
+                Preguntar
+              }
             </button>
           </div>
 
@@ -203,18 +237,38 @@
             </div>
           }
 
-          @if (resultadosBusqueda.length > 0) {
-            <div class="resultados-semanticos">
-              @for (resultado of resultadosBusqueda; track resultado.orden) {
-                <div class="resultado-semantico">
-                  <div class="resultado-meta">
-                    <span class="tiempo">
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                      {{ formatearTiempo(resultado.tiempoInicio) }} – {{ formatearTiempo(resultado.tiempoFin) }}
-                    </span>
-                    <span class="similitud-badge">{{ formatearSimilitud(resultado.similitud) }}</span>
-                  </div>
-                  <p class="fragmento-texto">{{ resultado.texto }}</p>
+          @if (respuestaRag) {
+            <!-- Respuesta generada -->
+            <div class="rag-respuesta">
+              <div class="rag-respuesta-header">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                Respuesta
+              </div>
+              <p class="rag-respuesta-texto">{{ respuestaRag.respuesta }}</p>
+            </div>
+
+            <!-- Fuentes expandibles -->
+            <div class="rag-fuentes">
+              <button class="rag-fuentes-toggle" (click)="fuentesExpandidas = !fuentesExpandidas">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                {{ respuestaRag.fuentes.length }} fragmentos usados como contexto
+                <svg class="toggle-chevron" [class.expandido]="fuentesExpandidas" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+
+              @if (fuentesExpandidas) {
+                <div class="resultados-semanticos">
+                  @for (fuente of respuestaRag.fuentes; track fuente.orden) {
+                    <div class="resultado-semantico">
+                      <div class="resultado-meta">
+                        <span class="tiempo">
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                          {{ formatearTiempo(fuente.tiempoInicio) }} – {{ formatearTiempo(fuente.tiempoFin) }}
+                        </span>
+                        <span class="similitud-badge">{{ formatearSimilitud(fuente.similitud) }}</span>
+                      </div>
+                      <p class="fragmento-texto">{{ fuente.texto }}</p>
+                    </div>
+                  }
                 </div>
               }
             </div>

@@ -7,6 +7,7 @@ import { VideoResumen } from '../modelos/video-resumen';
 import { FragmentoVideo } from '../modelos/fragmento-video';
 import { ResultadoBusqueda } from '../modelos/resultado-busqueda';
 import { EstadoTrabajo } from '../modelos/estado-trabajo';
+import { RespuestaRag } from '../modelos/respuesta-rag';
 
 @Injectable({ providedIn: 'root' })
 export class TranscripcionServicio {
@@ -28,6 +29,13 @@ export class TranscripcionServicio {
     );
   }
 
+  actualizarTitulo(id: number, titulo: string): Observable<void> {
+    return this.http.patch<void>(
+      `${this.urlBase}/transcripciones/${id}/titulo`,
+      { titulo }
+    );
+  }
+
   obtenerHistorial(): Observable<VideoResumen[]> {
     return this.http.get<VideoResumen[]>(`${this.urlBase}/transcripciones`);
   }
@@ -39,6 +47,13 @@ export class TranscripcionServicio {
   buscar(id: number, pregunta: string): Observable<ResultadoBusqueda[]> {
     return this.http.get<ResultadoBusqueda[]>(
       `${this.urlBase}/transcripciones/${id}/buscar`,
+      { params: { pregunta } }
+    );
+  }
+
+  responder(id: number, pregunta: string): Observable<RespuestaRag> {
+    return this.http.get<RespuestaRag>(
+      `${this.urlBase}/transcripciones/${id}/responder`,
       { params: { pregunta } }
     );
   }
