@@ -1,9 +1,7 @@
 package es.comprendia.entidad;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -35,4 +33,8 @@ public class Video extends PanacheEntity {
 
     @Column
     public Boolean completado = false;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "asignatura_id")
+    public Asignatura asignaturaObj;
 }

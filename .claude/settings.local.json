@@ -26,7 +26,9 @@
       "WebFetch(domain:emilkowal.ski)",
       "WebFetch(domain:www.tasteskill.dev)",
       "WebFetch(domain:www.claudepluginhub.com)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(curl -s -H \"Origin: http://localhost:4300\" -o /dev/null -w \"CORS 4300 -> access-control-allow-origin header presente: \" -D - \"http://localhost:8080/api/transcripciones/451\")",
+      "Bash(curl -s -H \"Origin: http://localhost:4300\" -D - -o /dev/null \"http://localhost:8080/api/transcripciones/451\")"
     ]
   }
 }

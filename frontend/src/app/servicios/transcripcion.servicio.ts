@@ -10,12 +10,22 @@ import { EstadoTrabajo } from '../modelos/estado-trabajo';
 import { RespuestaRag } from '../modelos/respuesta-rag';
 import { CapituloVideo } from '../modelos/capitulo-video';
 import { ConceptoClaveVideo } from '../modelos/concepto-clave-video';
+import { Asignatura } from '../modelos/asignatura';
+import { AsignaturaDetalle } from '../modelos/asignatura-detalle';
+import { ResultadoBusquedaAsignatura } from '../modelos/resultado-busqueda-asignatura';
 
 export interface VideoMetadata {
   asignatura?: string;
   profesor?: string;
   fechaClase?: string;
   completado?: boolean;
+  idAsignatura?: number | null;
+}
+
+export interface SolicitudAsignatura {
+  nombre: string;
+  descripcion?: string;
+  profesor?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -77,6 +87,41 @@ export class TranscripcionServicio {
 
   obtenerConceptos(id: number): Observable<ConceptoClaveVideo[]> {
     return this.http.get<ConceptoClaveVideo[]>(`${this.urlBase}/transcripciones/${id}/conceptos`);
+  }
+
+  eliminarVideo(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.urlBase}/transcripciones/${id}`);
+  }
+
+  // ── Asignaturas ────────────────────────────────────────────────────────────
+
+  obtenerAsignaturas(): Observable<Asignatura[]> {
+    return this.http.get<Asignatura[]>(`${this.urlBase}/asignaturas`);
+  }
+
+  crearAsignatura(solicitud: SolicitudAsignatura): Observable<Asignatura> {
+    return this.http.post<Asignatura>(`${this.urlBase}/asignaturas`, solicitud);
+  }
+
+  obtenerDetalleAsignatura(id: number): Observable<AsignaturaDetalle> {
+    return this.http.get<AsignaturaDetalle>(`${this.urlBase}/asignaturas/${id}`);
+  }
+
+  actualizarAsignatura(id: number, solicitud: SolicitudAsignatura): Observable<Asignatura> {
+    return this.http.patch<Asignatura>(`${this.urlBase}/asignaturas/${id}`, solicitud);
+  }
+
+  eliminarAsignatura(id: number, confirmacionNombre: string): Observable<void> {
+    return this.http.delete<void>(`${this.urlBase}/asignaturas/${id}`, {
+      body: { confirmacionNombre }
+    });
+  }
+
+  buscarEnAsignatura(id: number, pregunta: string): Observable<ResultadoBusquedaAsignatura[]> {
+    return this.http.get<ResultadoBusquedaAsignatura[]>(
+      `${this.urlBase}/asignaturas/${id}/buscar`,
+      { params: { pregunta } }
+    );
   }
 
   buscar(id: number, pregunta: string): Observable<ResultadoBusqueda[]> {

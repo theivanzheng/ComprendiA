@@ -77,6 +77,37 @@ public class FragmentoTranscripcionRepositorio implements PanacheRepository<Frag
             .toList();
     }
 
+    @SuppressWarnings("unchecked")
+    public List<es.comprendia.dto.ResultadoBusquedaAsignaturaDTO> buscarEnAsignatura(List<Long> idsVideo, String embeddingPregunta, int limite) {
+        if (idsVideo == null || idsVideo.isEmpty()) {
+            return List.of();
+        }
+        String idsStr = idsVideo.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
+        List<Object[]> filas = getEntityManager()
+            .createNativeQuery(
+                "SELECT f.video_id, v.titulo, v.youtube_id, f.texto, f.tiempo_inicio, " +
+                "       1 - (f.embedding_json <=> CAST(:emb AS vector)) AS similitud " +
+                "FROM fragmentos_transcripcion f " +
+                "JOIN videos v ON v.id = f.video_id " +
+                "WHERE f.video_id IN (" + idsStr + ") AND f.embedding_json IS NOT NULL " +
+                "ORDER BY f.embedding_json <=> CAST(:emb AS vector) " +
+                "LIMIT :limite")
+            .setParameter("emb", embeddingPregunta)
+            .setParameter("limite", limite)
+            .getResultList();
+
+        return filas.stream()
+            .map(fila -> new es.comprendia.dto.ResultadoBusquedaAsignaturaDTO(
+                ((Number) fila[0]).longValue(),
+                (String) fila[1],
+                (String) fila[2],
+                (String) fila[3],
+                ((Number) fila[4]).doubleValue(),
+                ((Number) fila[5]).doubleValue()
+            ))
+            .toList();
+    }
+
     @Transactional
     public void actualizarEmbedding(Long idFragmento, String embeddingJson) {
         LOG.infof("[Embedding] Guardando embedding para fragmento id=%s", idFragmento);

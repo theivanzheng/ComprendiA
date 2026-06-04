@@ -1,13 +1,16 @@
 import { ChangeDetectorRef, Component, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';
-import { TranscripcionServicio, VideoMetadata } from './servicios/transcripcion.servicio';
+import { TranscripcionServicio, VideoMetadata, SolicitudAsignatura } from './servicios/transcripcion.servicio';
 import { RespuestaTranscripcion } from './modelos/respuesta-transcripcion';
 import { VideoResumen } from './modelos/video-resumen';
 import { FragmentoVideo } from './modelos/fragmento-video';
 import { ResultadoBusqueda } from './modelos/resultado-busqueda';
 import { FaseTrabajo } from './modelos/estado-trabajo';
 import { RespuestaRag } from './modelos/respuesta-rag';
+import { Asignatura } from './modelos/asignatura';
+import { AsignaturaDetalle } from './modelos/asignatura-detalle';
+import { ResultadoBusquedaAsignatura } from './modelos/resultado-busqueda-asignatura';
 import { CapituloVideo } from './modelos/capitulo-video';
 import { ConceptoClaveVideo } from './modelos/concepto-clave-video';
 
@@ -24,8 +27,14 @@ interface PasoProcesamiento {
   descripcion: string;
 }
 
-type VistaApp = 'home' | 'clase' | 'cursos' | 'historial';
+type VistaApp = 'home' | 'clase' | 'cursos' | 'cursos-detalle' | 'historial';
 type SelectorMetadato = 'asignatura' | 'profesor' | null;
+
+// Describe desde dónde se abrió la clase, para que el botón atrás vuelva al sitio correcto
+type OrigenClase =
+  | { tipo: 'home' }
+  | { tipo: 'historial' }
+  | { tipo: 'asignatura'; idAsignatura: number };
 
 interface CapituloClase {
   titulo: string;
@@ -103,6 +112,53 @@ export class App implements OnInit, OnDestroy {
 
   protected faseActual: FaseTrabajo | null = null;
 
+  protected menuTarjetaAbiertoId: number | null = null;
+  protected confirmandoEliminarId: number | null = null;
+  protected eliminandoId: number | null = null;
+
+  // ── Asignaturas ────────────────────────────────────────────────────────────
+  protected asignaturas: Asignatura[] = [];
+  protected cargandoAsignaturas = false;
+  protected asignaturaDetalle: AsignaturaDetalle | null = null;
+  protected cargandoDetalleAsignatura = false;
+  protected errorAsignatura = '';
+
+  // Modal nueva asignatura
+  protected modalNuevaAsignatura = false;
+  protected nuevaAsignaturaNombre = '';
+  protected nuevaAsignaturaDescripcion = '';
+  protected nuevaAsignaturaProfesor = '';
+  protected guardandoAsignatura = false;
+  protected errorGuardarAsignatura = '';
+
+  // Modal eliminar asignatura
+  protected modalEliminarAsignatura = false;
+  protected eliminarAsignaturaConfirmacion = '';
+  protected eliminandoAsignatura = false;
+  protected errorEliminarAsignatura = '';
+
+  // Búsqueda dentro de asignatura
+  protected preguntaAsignatura = '';
+  protected resultadosBusquedaAsignatura: ResultadoBusquedaAsignatura[] = [];
+  protected cargandoBusquedaAsignatura = false;
+  protected errorBusquedaAsignatura = '';
+
+  // Menú contextual de asignatura (tres puntos)
+  protected menuAsignaturaAbierto = false;
+
+  // Origen de navegación de la clase abierta: decide a dónde vuelve el botón atrás
+  protected origenClase: OrigenClase | null = null;
+
+  // Caché en memoria de asignaturas (no persistente — se pierde al recargar la página)
+  private cacheListaAsignaturas: Asignatura[] | null = null;
+  private cacheDetalleAsignatura = new Map<number, AsignaturaDetalle>();
+
+  // Timers para disimular la carga del detalle de asignatura (igual que en clase)
+  protected mostrandoSkeletonAsignatura = false;
+  protected mostrandoMensajeAsignatura = false;
+  private temporizadorSkeletonAsignatura: ReturnType<typeof setTimeout> | null = null;
+  private temporizadorMensajeAsignatura: ReturnType<typeof setTimeout> | null = null;
+
   protected editandoTitulo = false;
   protected tituloEdicion = '';
   protected guardandoTitulo = false;
@@ -114,20 +170,22 @@ export class App implements OnInit, OnDestroy {
   protected profesorClase = 'Profesor pendiente';
   protected fechaClase = this.obtenerFechaActual();
   protected tiempoInicioReproductor = 0;
+  // URL del iframe de YouTube ya sanitizada. Es un CAMPO (no getter) para no regenerar
+  // un objeto nuevo en cada ciclo de detección de cambios, lo que recargaba el iframe.
+  protected urlEmbedClase: SafeResourceUrl | null = null;
+  // Se incrementa en cada cambio de URL para forzar el remount del iframe (@for track)
+  protected reproductorKey = 0;
   protected selectorMetadatoAbierto: SelectorMetadato = null;
   protected busquedaAsignatura = '';
   protected busquedaProfesor = '';
   protected busquedaConceptos = '';
   protected contenidoTratadoAbierto = true;
-  protected readonly idIframeClase = 'comprendia-class-player';
 
-  protected asignaturasDisponibles = [
-    'Sin asignatura',
-    'Inteligencia Artificial',
-    'Bases de Datos',
-    'Algoritmos',
-    'Programacion Web'
-  ];
+  // Nombres para el selector (derivados de asignaturasObjetos + fallback inicial)
+  protected asignaturasDisponibles: string[] = ['Sin asignatura'];
+  // Objetos reales del backend — fuente de verdad para IDs
+  protected asignaturasObjetos: Asignatura[] = [];
+  protected cargandoAsignaturasSelector = false;
 
   protected profesoresDisponibles = [
     'Profesor pendiente',
@@ -172,7 +230,6 @@ export class App implements OnInit, OnDestroy {
 
   private intervaloPolling: ReturnType<typeof setInterval> | null = null;
   private intervaloTiempo: ReturnType<typeof setInterval> | null = null;
-  private youtubePlayer: any = null;
   private idClaseCargando: number | null = null;
   private temporizadorSkeletonClase: ReturnType<typeof setTimeout> | null = null;
   private temporizadorMensajeClase: ReturnType<typeof setTimeout> | null = null;
@@ -198,19 +255,30 @@ export class App implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.aplicarRutaActual();
     this.cargarHistorial();
+    // Precarga asignaturas para el selector de clase (sin mostrar spinner de la página de cursos)
+    this.cargarAsignaturasEnSilencio();
   }
 
   ngOnDestroy(): void {
     this.detenerPolling();
     this.detenerTemporizador();
     this.limpiarTemporizadoresCargaClase();
-    this.destruirYoutubePlayer();
+    this.limpiarReproductor();
   }
 
   @HostListener('document:click')
   cerrarSelectorAlClickExterior(): void {
     if (this.selectorMetadatoAbierto) {
       this.cerrarSelectorMetadato();
+    }
+    if (this.menuTarjetaAbiertoId !== null) {
+      this.menuTarjetaAbiertoId = null;
+      this.confirmandoEliminarId = null;
+      this.cd.detectChanges();
+    }
+    if (this.menuAsignaturaAbierto) {
+      this.menuAsignaturaAbierto = false;
+      this.cd.detectChanges();
     }
   }
 
@@ -285,22 +353,36 @@ export class App implements OnInit, OnDestroy {
     );
   }
 
-  get urlEmbedClase(): SafeResourceUrl | null {
+  // Reconstruye la URL del iframe. Se llama SOLO al cargar la clase o al saltar a un
+  // capítulo, no en cada detección de cambios. Genera una URL nueva (string distinto)
+  // para que el navegador recargue el iframe en el segundo indicado.
+  private actualizarUrlEmbed(autoplay: boolean): void {
     const youtubeId = this.youtubeIdClase;
+    console.log('[Reproductor] youtubeId', youtubeId);
 
-    if (!youtubeId) return null;
+    if (!youtubeId) {
+      this.urlEmbedClase = null;
+      console.warn('[Reproductor] Sin youtubeId — no se puede construir el iframe');
+      return;
+    }
+
     const inicio = Math.max(0, Math.floor(this.tiempoInicioReproductor));
     const parametros = new URLSearchParams({
+      start: String(inicio),
       enablejsapi: '1',
-      origin: window.location.origin
+      rel: '0',
+      modestbranding: '1'
     });
-    if (inicio > 0) {
-      parametros.set('start', String(inicio));
+    if (autoplay) {
       parametros.set('autoplay', '1');
     }
-    return this.sanitizer.bypassSecurityTrustResourceUrl(
-      `https://www.youtube.com/embed/${youtubeId}?${parametros.toString()}`
-    );
+
+    const urlPlana = `https://www.youtube.com/embed/${youtubeId}?${parametros.toString()}`;
+    console.log('[Reproductor] embedUrl', urlPlana);
+    // Cambiar la key fuerza a Angular a recrear el <iframe> en vez de reutilizarlo,
+    // garantizando que el navegador recargue el vídeo en el nuevo segundo.
+    this.reproductorKey++;
+    this.urlEmbedClase = this.sanitizer.bypassSecurityTrustResourceUrl(urlPlana);
   }
 
   get youtubeIdClase(): string | null {
@@ -311,6 +393,16 @@ export class App implements OnInit, OnDestroy {
 
   get thumbnailClase(): string {
     return this.obtenerThumbnailYoutube(this.youtubeIdClase);
+  }
+
+  // URL pública para abrir el vídeo en YouTube (fallback si el embed está bloqueado)
+  get urlYoutubeClase(): string | null {
+    const id = this.youtubeIdClase;
+    if (!id) return null;
+    const inicio = Math.max(0, Math.floor(this.tiempoInicioReproductor));
+    return inicio > 0
+      ? `https://www.youtube.com/watch?v=${id}&t=${inicio}s`
+      : `https://www.youtube.com/watch?v=${id}`;
   }
 
   get tituloClase(): string {
@@ -563,7 +655,9 @@ export class App implements OnInit, OnDestroy {
     if (actualizarUrl) {
       this.actualizarRuta('#/clase/' + video.id);
     }
-    this.programarSeguimientoYoutube();
+    // Cargar el reproductor desde el inicio, listo para reproducir (con botón play)
+    this.tiempoInicioReproductor = 0;
+    this.actualizarUrlEmbed(false);
 
     if (!cargarDetalles) {
       return;
@@ -718,10 +812,25 @@ export class App implements OnInit, OnDestroy {
     this.busquedaProfesor = '';
   }
 
-  seleccionarAsignatura(asignatura: string): void {
-    this.asignaturaClase = asignatura;
+  seleccionarAsignatura(nombreAsignatura: string): void {
+    this.asignaturaClase = nombreAsignatura;
     this.cerrarSelectorMetadato();
-    this.guardarMetadataClase();
+
+    // Buscar el objeto real para enviar idAsignatura si existe
+    const objeto = this.asignaturasObjetos.find(
+      a => a.nombre.toLowerCase() === nombreAsignatura.toLowerCase()
+    );
+
+    if (objeto) {
+      // Asignatura existente en backend → enviar idAsignatura
+      this.persistirMetadata({ idAsignatura: objeto.id });
+    } else if (nombreAsignatura === 'Sin asignatura') {
+      // Quitar asignación
+      this.persistirMetadata({ asignatura: 'Sin asignatura', idAsignatura: null });
+    } else {
+      // Nombre libre que aún no está en backend → enviar como string
+      this.persistirMetadata({ asignatura: nombreAsignatura });
+    }
   }
 
   seleccionarProfesor(profesor: string): void {
@@ -731,12 +840,40 @@ export class App implements OnInit, OnDestroy {
   }
 
   crearAsignaturaDesdeBusqueda(): void {
-    const asignatura = this.normalizarOpcion(this.busquedaAsignatura);
-    if (!asignatura) return;
-    if (!this.existeOpcion(this.asignaturasDisponibles, asignatura)) {
-      this.asignaturasDisponibles = [...this.asignaturasDisponibles, asignatura];
+    const nombre = this.normalizarOpcion(this.busquedaAsignatura);
+    if (!nombre) return;
+
+    // Si ya existe en los objetos del backend, simplemente seleccionarla
+    const existente = this.asignaturasObjetos.find(
+      a => a.nombre.toLowerCase() === nombre.toLowerCase()
+    );
+    if (existente) {
+      this.seleccionarAsignatura(existente.nombre);
+      return;
     }
-    this.seleccionarAsignatura(asignatura);
+
+    // Crear en backend, luego vincular al vídeo
+    const solicitud: SolicitudAsignatura = { nombre };
+    this.transcripcionServicio.crearAsignatura(solicitud).subscribe({
+      next: (nueva) => {
+        // Añadir al listado local sin recargar todo
+        this.asignaturasObjetos = [...this.asignaturasObjetos, nueva];
+        this.sincronizarNombresSelector();
+        this.asignaturas = [...this.asignaturas, nueva]; // actualizar vista Mis Cursos
+        // Vincular el vídeo actual a la nueva asignatura
+        this.asignaturaClase = nueva.nombre;
+        this.cerrarSelectorMetadato();
+        this.persistirMetadata({ idAsignatura: nueva.id });
+        this.cd.detectChanges();
+      },
+      error: () => {
+        // Fallback: guardar como string si el backend falla
+        this.asignaturaClase = nombre;
+        this.cerrarSelectorMetadato();
+        this.persistirMetadata({ asignatura: nombre });
+        this.cd.detectChanges();
+      }
+    });
   }
 
   crearProfesorDesdeBusqueda(): void {
@@ -778,8 +915,314 @@ export class App implements OnInit, OnDestroy {
     imagen.src = this.obtenerThumbnailYoutube(youtubeId, 'hqdefault');
   }
 
+  // ── Métodos de asignaturas ─────────────────────────────────────────────────
+
+  cargarAsignaturas(): void {
+    // Si hay caché, mostrarla al instante y refrescar en segundo plano (sin loader)
+    if (this.cacheListaAsignaturas) {
+      this.asignaturas = [...this.cacheListaAsignaturas];
+      this.asignaturasObjetos = [...this.cacheListaAsignaturas];
+      this.sincronizarNombresSelector();
+      this.cargandoAsignaturas = false;
+      this.cd.markForCheck();
+      this.refrescarAsignaturas();
+      return;
+    }
+
+    // Sin caché: mostrar loader mientras llega la primera respuesta
+    this.cargandoAsignaturas = true;
+    this.refrescarAsignaturas();
+  }
+
+  // Petición real a backend; actualiza caché y UI. No fuerza loader (lo gestiona quien llama).
+  private refrescarAsignaturas(): void {
+    this.transcripcionServicio.obtenerAsignaturas().subscribe({
+      next: (lista) => {
+        this.cacheListaAsignaturas = [...lista];
+        this.asignaturas = [...lista];
+        this.asignaturasObjetos = [...lista];
+        this.sincronizarNombresSelector();
+        this.cargandoAsignaturas = false;
+        this.cd.markForCheck();
+      },
+      error: () => {
+        this.cargandoAsignaturas = false;
+        this.cd.markForCheck();
+      }
+    });
+  }
+
+  // Carga silenciosa al iniciar: solo rellena el selector de clase, no toca cargandoAsignaturas
+  private cargarAsignaturasEnSilencio(): void {
+    this.transcripcionServicio.obtenerAsignaturas().subscribe({
+      next: (lista) => {
+        this.cacheListaAsignaturas = [...lista];
+        this.asignaturasObjetos = [...lista];
+        // Solo actualizar this.asignaturas si la página de cursos aún no la ha cargado
+        if (this.asignaturas.length === 0) {
+          this.asignaturas = [...lista];
+        }
+        this.sincronizarNombresSelector();
+        this.cd.markForCheck();
+      },
+      error: () => { /* silencioso */ }
+    });
+  }
+
+  private sincronizarNombresSelector(): void {
+    const nombresBackend = this.asignaturasObjetos.map(a => a.nombre);
+    // Mantener 'Sin asignatura' siempre al principio
+    this.asignaturasDisponibles = ['Sin asignatura', ...nombresBackend];
+  }
+
+  cargarDetalleAsignatura(id: number): void {
+    this.vistaActual = 'cursos-detalle';
+    this.preguntaAsignatura = '';
+    this.resultadosBusquedaAsignatura = [];
+    this.errorBusquedaAsignatura = '';
+    this.errorAsignatura = '';
+    this.menuAsignaturaAbierto = false;
+    this.actualizarRuta('#/cursos/' + id);
+
+    const detalleCacheado = this.cacheDetalleAsignatura.get(id);
+
+    if (detalleCacheado) {
+      // Hay caché: mostrar al instante sin loader y refrescar en segundo plano
+      this.asignaturaDetalle = { ...detalleCacheado, clases: [...detalleCacheado.clases] };
+      this.cargandoDetalleAsignatura = false;
+      this.limpiarTemporizadoresAsignatura();
+      this.cd.markForCheck();
+      this.refrescarDetalleAsignatura(id);
+      return;
+    }
+
+    // Sin caché: vaciar y mostrar skeleton a los 150 ms (loading inteligente)
+    this.asignaturaDetalle = null;
+    this.cargandoDetalleAsignatura = true;
+    this.programarLoadingAsignatura();
+    this.refrescarDetalleAsignatura(id);
+  }
+
+  // Petición real al backend; actualiza caché y UI. No fuerza loader.
+  private refrescarDetalleAsignatura(id: number): void {
+    this.transcripcionServicio.obtenerDetalleAsignatura(id).subscribe({
+      next: (detalle) => {
+        // Ignorar respuesta si el usuario ya navegó a otra asignatura
+        if (this.vistaActual !== 'cursos-detalle') return;
+        this.limpiarTemporizadoresAsignatura();
+        const copia = { ...detalle, clases: [...detalle.clases] };
+        this.cacheDetalleAsignatura.set(id, copia);
+        this.asignaturaDetalle = copia;
+        this.cargandoDetalleAsignatura = false;
+        this.cd.markForCheck();
+      },
+      error: () => {
+        this.limpiarTemporizadoresAsignatura();
+        // Solo mostrar error si no había nada cacheado que mostrar
+        if (!this.asignaturaDetalle) {
+          this.errorAsignatura = 'No se pudo cargar la asignatura.';
+        }
+        this.cargandoDetalleAsignatura = false;
+        this.cd.markForCheck();
+      }
+    });
+  }
+
+  abrirModalNuevaAsignatura(): void {
+    this.nuevaAsignaturaNombre = '';
+    this.nuevaAsignaturaDescripcion = '';
+    this.nuevaAsignaturaProfesor = '';
+    this.errorGuardarAsignatura = '';
+    this.modalNuevaAsignatura = true;
+  }
+
+  cerrarModalNuevaAsignatura(): void {
+    this.modalNuevaAsignatura = false;
+    this.guardandoAsignatura = false;
+    this.errorGuardarAsignatura = '';
+  }
+
+  guardarNuevaAsignatura(): void {
+    if (!this.nuevaAsignaturaNombre.trim()) {
+      this.errorGuardarAsignatura = 'El nombre es obligatorio.';
+      return;
+    }
+    this.guardandoAsignatura = true;
+    this.errorGuardarAsignatura = '';
+
+    const solicitud: SolicitudAsignatura = {
+      nombre: this.nuevaAsignaturaNombre.trim(),
+      descripcion: this.nuevaAsignaturaDescripcion.trim() || undefined,
+      profesor: this.nuevaAsignaturaProfesor.trim() || undefined
+    };
+
+    this.transcripcionServicio.crearAsignatura(solicitud).subscribe({
+      next: (nueva) => {
+        this.asignaturas = [nueva, ...this.asignaturas];
+        this.asignaturasObjetos = [nueva, ...this.asignaturasObjetos];
+        this.cacheListaAsignaturas = [...this.asignaturas]; // mantener caché coherente
+        this.sincronizarNombresSelector();
+        this.guardandoAsignatura = false;
+        this.cerrarModalNuevaAsignatura();
+        this.cd.markForCheck();
+      },
+      error: (err) => {
+        this.errorGuardarAsignatura = err.error?.error ?? 'Error al crear la asignatura.';
+        this.guardandoAsignatura = false;
+        this.cd.markForCheck();
+      }
+    });
+  }
+
+  abrirModalEliminarAsignatura(): void {
+    this.eliminarAsignaturaConfirmacion = '';
+    this.errorEliminarAsignatura = '';
+    this.modalEliminarAsignatura = true;
+  }
+
+  cerrarModalEliminarAsignatura(): void {
+    this.modalEliminarAsignatura = false;
+    this.eliminandoAsignatura = false;
+    this.errorEliminarAsignatura = '';
+    this.eliminarAsignaturaConfirmacion = '';
+  }
+
+  confirmarEliminarAsignatura(): void {
+    if (!this.asignaturaDetalle) return;
+    if (this.eliminarAsignaturaConfirmacion !== this.asignaturaDetalle.nombre) {
+      this.errorEliminarAsignatura = 'El nombre no coincide exactamente.';
+      return;
+    }
+    this.eliminandoAsignatura = true;
+    this.errorEliminarAsignatura = '';
+
+    this.transcripcionServicio.eliminarAsignatura(
+      this.asignaturaDetalle.id,
+      this.eliminarAsignaturaConfirmacion
+    ).subscribe({
+      next: () => {
+        const idEliminada = this.asignaturaDetalle!.id;
+        this.asignaturas = this.asignaturas.filter(a => a.id !== idEliminada);
+        this.asignaturasObjetos = this.asignaturasObjetos.filter(a => a.id !== idEliminada);
+        // Invalidar cachés de la asignatura borrada
+        this.cacheListaAsignaturas = [...this.asignaturas];
+        this.cacheDetalleAsignatura.delete(idEliminada);
+        this.sincronizarNombresSelector();
+        this.asignaturaDetalle = null;
+        this.cerrarModalEliminarAsignatura();
+        this.irACursos();
+        this.cd.markForCheck();
+      },
+      error: (err) => {
+        this.errorEliminarAsignatura = err.error?.error ?? 'Error al eliminar la asignatura.';
+        this.eliminandoAsignatura = false;
+        this.cd.markForCheck();
+      }
+    });
+  }
+
+  buscarEnAsignatura(): void {
+    if (!this.preguntaAsignatura.trim() || !this.asignaturaDetalle) return;
+    this.cargandoBusquedaAsignatura = true;
+    this.errorBusquedaAsignatura = '';
+    this.resultadosBusquedaAsignatura = [];
+
+    this.transcripcionServicio.buscarEnAsignatura(
+      this.asignaturaDetalle.id,
+      this.preguntaAsignatura.trim()
+    ).subscribe({
+      next: (resultados) => {
+        this.resultadosBusquedaAsignatura = resultados;
+        this.cargandoBusquedaAsignatura = false;
+        this.cd.detectChanges();
+      },
+      error: (err) => {
+        this.errorBusquedaAsignatura = err.error?.error ?? 'Error en la búsqueda.';
+        this.cargandoBusquedaAsignatura = false;
+        this.cd.detectChanges();
+      }
+    });
+  }
+
+  get profesorEfectivoAsignatura(): string {
+    if (!this.asignaturaDetalle) return '';
+    // Si la asignatura tiene profesor definido, usarlo
+    if (this.asignaturaDetalle.profesor?.trim()) return this.asignaturaDetalle.profesor;
+    // Sino derivar de las clases
+    const profesores = [...new Set(
+      this.asignaturaDetalle.clases
+        .map(c => c.profesor?.trim())
+        .filter((p): p is string => !!p && p !== 'Profesor pendiente')
+    )];
+    if (profesores.length === 0) return '';
+    if (profesores.length === 1) return profesores[0];
+    return 'Varios profesores';
+  }
+
+  alternarMenuAsignatura(evento: Event): void {
+    evento.stopPropagation();
+    this.menuAsignaturaAbierto = !this.menuAsignaturaAbierto;
+  }
+
+  formatearFechaClase(fechaCreacion: string | null): string {
+    if (!fechaCreacion) return '';
+    const d = new Date(fechaCreacion);
+    return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  }
+
+  formatearFechaRelativa(fecha: string | null): string {
+    if (!fecha) return 'Sin actualizar';
+    const diff = Date.now() - new Date(fecha).getTime();
+    const dias = Math.floor(diff / 86400000);
+    if (dias === 0) return 'Hoy';
+    if (dias === 1) return 'Ayer';
+    if (dias < 7) return `Hace ${dias} días`;
+    if (dias < 30) return `Hace ${Math.floor(dias / 7)} semanas`;
+    return `Hace ${Math.floor(dias / 30)} meses`;
+  }
+
+  // ── Métodos de tarjetas de clases recientes ───────────────────────────────
+
+  alternarMenuTarjeta(idVideo: number, evento: Event): void {
+    evento.stopPropagation();
+    this.menuTarjetaAbiertoId = this.menuTarjetaAbiertoId === idVideo ? null : idVideo;
+    this.confirmandoEliminarId = null;
+  }
+
+  iniciarConfirmacionEliminar(idVideo: number, evento: Event): void {
+    evento.stopPropagation();
+    this.confirmandoEliminarId = idVideo;
+  }
+
+  cancelarEliminar(evento: Event): void {
+    evento.stopPropagation();
+    this.confirmandoEliminarId = null;
+    this.menuTarjetaAbiertoId = null;
+  }
+
+  eliminarClase(video: VideoResumen, evento: Event): void {
+    evento.stopPropagation();
+    this.eliminandoId = video.id;
+    this.menuTarjetaAbiertoId = null;
+    this.confirmandoEliminarId = null;
+
+    this.transcripcionServicio.eliminarVideo(video.id).subscribe({
+      next: () => {
+        this.historial = this.historial.filter(v => v.id !== video.id);
+        this.cacheClases.delete(video.id);
+        this.eliminandoId = null;
+        this.cd.detectChanges();
+      },
+      error: () => {
+        this.eliminandoId = null;
+        this.cd.detectChanges();
+      }
+    });
+  }
+
   irAHome(): void {
     this.cancelarCargaClasePendiente();
+    this.origenClase = null;
     this.vistaActual = 'home';
     this.actualizarRuta('#/');
   }
@@ -794,20 +1237,63 @@ export class App implements OnInit, OnDestroy {
 
   irACursos(): void {
     this.cancelarCargaClasePendiente();
+    this.origenClase = null;
     this.vistaActual = 'cursos';
     this.actualizarRuta('#/cursos');
+    this.cargarAsignaturas();
   }
 
   irAHistorial(): void {
     this.cancelarCargaClasePendiente();
+    this.origenClase = null;
     this.vistaActual = 'historial';
     this.actualizarRuta('#/historial');
   }
 
-  abrirClase(idVideo: number, preview?: VideoResumen): void {
+  abrirClase(idVideo: number, preview?: VideoResumen, origenAsignatura?: number): void {
     if (!Number.isFinite(idVideo)) return;
+    // Capturar el origen ANTES de cambiar de vista (this.vistaActual aún es la de partida)
+    this.origenClase = this.calcularOrigenClase(origenAsignatura);
     this.actualizarRuta('#/clase/' + idVideo);
     this.cargarClaseDesdeRuta(idVideo, true, preview);
+  }
+
+  private calcularOrigenClase(origenAsignatura?: number): OrigenClase {
+    if (origenAsignatura != null) {
+      return { tipo: 'asignatura', idAsignatura: origenAsignatura };
+    }
+    if (this.vistaActual === 'historial') {
+      return { tipo: 'historial' };
+    }
+    if ((this.vistaActual === 'cursos-detalle' || this.vistaActual === 'cursos') && this.asignaturaDetalle) {
+      return { tipo: 'asignatura', idAsignatura: this.asignaturaDetalle.id };
+    }
+    // Inicio o entrada directa por URL → volver a inicio
+    return { tipo: 'home' };
+  }
+
+  get mostrarVolverClase(): boolean {
+    return this.origenClase !== null;
+  }
+
+  volverAlOrigen(): void {
+    const origen = this.origenClase;
+    if (!origen) {
+      this.irAHome();
+      return;
+    }
+    switch (origen.tipo) {
+      case 'historial':
+        this.irAHistorial();
+        break;
+      case 'asignatura':
+        this.cargarDetalleAsignatura(origen.idAsignatura);
+        break;
+      case 'home':
+      default:
+        this.irAHome();
+        break;
+    }
   }
 
   alternarChat(): void {
@@ -849,9 +1335,17 @@ export class App implements OnInit, OnDestroy {
   }
 
   saltarATiempo(segundos: number): void {
-    this.tiempoInicioReproductor = segundos;
-    this.cd.detectChanges();
-    this.programarSeguimientoYoutube();
+    // Segundos enteros y no negativos
+    this.tiempoInicioReproductor = Math.max(0, Math.floor(segundos));
+    // Reconstruir la URL con start={segundos} y autoplay para que el iframe recargue
+    // y se posicione en ese punto. El cambio de URL (string distinto) fuerza la recarga.
+    this.actualizarUrlEmbed(true);
+    this.cd.markForCheck();
+  }
+
+  // Salta al inicio de un capítulo (atajo semántico solicitado)
+  irACapitulo(capitulo: CapituloClase): void {
+    this.saltarATiempo(capitulo.tiempo);
   }
 
   private iniciarPolling(idTrabajo: string): void {
@@ -1049,56 +1543,10 @@ export class App implements OnInit, OnDestroy {
     return seleccionados;
   }
 
-  private programarSeguimientoYoutube(): void {
-    this.destruirYoutubePlayer();
-    setTimeout(() => this.inicializarSeguimientoYoutube(), 250);
-  }
-
-  private inicializarSeguimientoYoutube(): void {
-    if (!this.videoSeleccionado || !this.youtubeIdClase) return;
-
-    this.cargarYouTubeIframeApi(() => {
-      const iframe = document.getElementById(this.idIframeClase);
-      if (!iframe || !window.YT?.Player) return;
-
-      this.destruirYoutubePlayer();
-      this.youtubePlayer = new window.YT.Player(this.idIframeClase, {
-        events: {
-          onStateChange: (evento: { data: number }) => {
-            if (evento.data === window.YT.PlayerState.ENDED && this.videoSeleccionado) {
-              this.marcarClaseCompletada(true);
-            }
-          }
-        }
-      });
-    });
-  }
-
-  private cargarYouTubeIframeApi(callback: () => void): void {
-    if (window.YT?.Player) {
-      callback();
-      return;
-    }
-
-    const callbackPrevio = window.onYouTubeIframeAPIReady;
-    window.onYouTubeIframeAPIReady = () => {
-      callbackPrevio?.();
-      callback();
-    };
-
-    if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
-      const script = document.createElement('script');
-      script.src = 'https://www.youtube.com/iframe_api';
-      script.async = true;
-      document.head.appendChild(script);
-    }
-  }
-
-  private destruirYoutubePlayer(): void {
-    if (this.youtubePlayer?.destroy) {
-      this.youtubePlayer.destroy();
-    }
-    this.youtubePlayer = null;
+  // Limpia el reproductor (al salir de la clase o iniciar un nuevo procesamiento)
+  private limpiarReproductor(): void {
+    this.urlEmbedClase = null;
+    this.tiempoInicioReproductor = 0;
   }
 
   private marcarClaseCompletada(completado: boolean): void {
@@ -1124,9 +1572,15 @@ export class App implements OnInit, OnDestroy {
   }
 
   private aplicarMetadataLocal(idVideo: number, metadata: VideoMetadata): void {
+    // Resuelve el nombre de asignatura para mostrarlo localmente
+    const nombreAsignatura = metadata.idAsignatura != null
+      ? (this.asignaturasObjetos.find(a => a.id === metadata.idAsignatura)?.nombre ?? metadata.asignatura)
+      : metadata.asignatura;
+
     const aplicar = (video: VideoResumen): VideoResumen => ({
       ...video,
-      asignatura: metadata.asignatura ?? video.asignatura,
+      asignatura: nombreAsignatura ?? video.asignatura,
+      idAsignatura: metadata.idAsignatura !== undefined ? metadata.idAsignatura : video.idAsignatura,
       profesor: metadata.profesor ?? video.profesor,
       fechaClase: metadata.fechaClase ?? video.fechaClase,
       completado: metadata.completado ?? video.completado
@@ -1194,7 +1648,7 @@ export class App implements OnInit, OnDestroy {
     this.editandoTitulo = false;
     this.fuentesExpandidas = false;
     this.cargandoFragmentos = false;
-    this.destruirYoutubePlayer();
+    this.limpiarReproductor();
   }
 
   private programarLoadingClase(idVideo: number): void {
@@ -1224,6 +1678,35 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  private programarLoadingAsignatura(): void {
+    this.limpiarTemporizadoresAsignatura();
+
+    this.temporizadorSkeletonAsignatura = setTimeout(() => {
+      if (!this.cargandoDetalleAsignatura) return;
+      this.mostrandoSkeletonAsignatura = true;
+      this.cd.detectChanges();
+    }, 150);
+
+    this.temporizadorMensajeAsignatura = setTimeout(() => {
+      if (!this.cargandoDetalleAsignatura) return;
+      this.mostrandoMensajeAsignatura = true;
+      this.cd.detectChanges();
+    }, 700);
+  }
+
+  private limpiarTemporizadoresAsignatura(): void {
+    if (this.temporizadorSkeletonAsignatura !== null) {
+      clearTimeout(this.temporizadorSkeletonAsignatura);
+      this.temporizadorSkeletonAsignatura = null;
+    }
+    if (this.temporizadorMensajeAsignatura !== null) {
+      clearTimeout(this.temporizadorMensajeAsignatura);
+      this.temporizadorMensajeAsignatura = null;
+    }
+    this.mostrandoSkeletonAsignatura = false;
+    this.mostrandoMensajeAsignatura = false;
+  }
+
   private cancelarCargaClasePendiente(): void {
     this.idClaseCargando = null;
     this.cargandoClase = false;
@@ -1234,14 +1717,12 @@ export class App implements OnInit, OnDestroy {
   }
 
   private actualizarOpcionesMetadataDesdeVideos(videos: VideoResumen[]): void {
-    const asignaturas = videos
-      .map(video => video.asignatura)
-      .filter((valor): valor is string => !!valor?.trim());
+    // Las asignaturas se gestionan desde el backend (asignaturasObjetos).
+    // Solo sincronizamos profesores desde los vídeos para mantener el selector actualizado.
     const profesores = videos
       .map(video => video.profesor)
       .filter((valor): valor is string => !!valor?.trim());
 
-    this.asignaturasDisponibles = this.fusionarOpciones(this.asignaturasDisponibles, asignaturas);
     this.profesoresDisponibles = this.fusionarOpciones(this.profesoresDisponibles, profesores);
   }
 
@@ -1260,6 +1741,11 @@ export class App implements OnInit, OnDestroy {
     if (vista === 'clase' && id) {
       const idVideo = Number(id);
       if (Number.isFinite(idVideo)) {
+        // Entrada directa por URL (o navegador atrás/adelante): si no hay origen previo,
+        // el botón atrás vuelve a Inicio
+        if (this.origenClase === null) {
+          this.origenClase = { tipo: 'home' };
+        }
         this.cargarClaseDesdeRuta(idVideo);
       } else {
         this.irAHome();
@@ -1267,9 +1753,19 @@ export class App implements OnInit, OnDestroy {
       return;
     }
 
+    if (vista === 'cursos' && id) {
+      const idAsignatura = Number(id);
+      if (Number.isFinite(idAsignatura)) {
+        this.cancelarCargaClasePendiente();
+        this.cargarDetalleAsignatura(idAsignatura);
+        return;
+      }
+    }
+
     if (vista === 'cursos') {
       this.cancelarCargaClasePendiente();
       this.vistaActual = 'cursos';
+      this.cargarAsignaturas();
       return;
     }
 
@@ -1322,6 +1818,9 @@ export class App implements OnInit, OnDestroy {
           this.aplicarDetallesCacheados(idVideo);
           this.cargarDetallesClase(idVideo);
         }
+        // Zoneless: el callback HTTP no repinta solo. Forzar CD para que el iframe
+        // (urlEmbedClase) se renderice al entrar directo por URL o tras refrescar.
+        this.cd.detectChanges();
       },
       error: () => {
         if (!this.esHashClase(idVideo) || this.idClaseCargando !== idVideo) return;
@@ -1344,6 +1843,7 @@ export class App implements OnInit, OnDestroy {
   private obtenerVistaInicial(): VistaApp {
     const ruta = window.location.hash.replace(/^#\/?/, '');
     if (ruta.startsWith('clase/')) return 'clase';
+    if (ruta.startsWith('cursos/')) return 'cursos-detalle';
     if (ruta === 'cursos') return 'cursos';
     if (ruta === 'historial') return 'historial';
     return 'home';

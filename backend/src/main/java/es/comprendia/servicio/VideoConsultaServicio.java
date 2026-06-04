@@ -22,6 +22,23 @@ public class VideoConsultaServicio {
     FragmentoTranscripcionRepositorio fragmentoRepositorio;
 
     @Transactional
+    public List<VideoResumenDTO> obtenerVideosPorAsignatura(Long idAsignatura) {
+        List<Video> videos = videoRepositorio
+            .list("asignaturaObj.id", Sort.by("fechaCreacion").descending(), idAsignatura);
+
+        if (videos.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> idsVideo = videos.stream().map(v -> v.id).toList();
+        Map<Long, Long> conteoPorVideo = fragmentoRepositorio.contarPorVideos(idsVideo);
+
+        return videos.stream()
+            .map(v -> convertirAResumen(v, conteoPorVideo.getOrDefault(v.id, 0L)))
+            .toList();
+    }
+
+    @Transactional
     public List<VideoResumenDTO> obtenerVideos(int pagina, int tamanyo) {
         List<Video> videos = videoRepositorio
             .findAll(Sort.by("fechaCreacion").descending())
@@ -52,6 +69,11 @@ public class VideoConsultaServicio {
     }
 
     private VideoResumenDTO convertirAResumen(Video video, long numeroFragmentos) {
+        String nombreAsignatura = video.asignaturaObj != null
+            ? video.asignaturaObj.nombre
+            : (video.asignatura == null || video.asignatura.isBlank() ? "Sin asignatura" : video.asignatura);
+        Long idAsignatura = video.asignaturaObj != null ? video.asignaturaObj.id : null;
+
         return new VideoResumenDTO(
             video.id,
             video.youtubeId,
@@ -59,10 +81,11 @@ public class VideoConsultaServicio {
             video.fechaCreacion,
             video.fuenteTranscripcion,
             numeroFragmentos,
-            video.asignatura == null || video.asignatura.isBlank() ? "Sin asignatura" : video.asignatura,
+            nombreAsignatura,
             video.profesor == null || video.profesor.isBlank() ? "Profesor pendiente" : video.profesor,
             video.fechaClase,
-            Boolean.TRUE.equals(video.completado)
+            Boolean.TRUE.equals(video.completado),
+            idAsignatura
         );
     }
 }

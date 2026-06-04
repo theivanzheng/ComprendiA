@@ -81,12 +81,37 @@
         } @else {
           <div class="recent-grid">
             @for (video of historial; track video.id; let index = $index) {
-              <article class="recent-card">
-                <button class="recent-menu" type="button" aria-label="Opciones de clase">
+              <article class="recent-card" [class.eliminando]="eliminandoId === video.id">
+                <button
+                  class="recent-menu"
+                  type="button"
+                  aria-label="Opciones de clase"
+                  [class.activo]="menuTarjetaAbiertoId === video.id"
+                  (click)="alternarMenuTarjeta(video.id, $event)"
+                >
                   <span></span>
                   <span></span>
                   <span></span>
                 </button>
+
+                @if (menuTarjetaAbiertoId === video.id) {
+                  <div class="menu-contextual" (click)="$event.stopPropagation()">
+                    @if (confirmandoEliminarId === video.id) {
+                      <p class="menu-confirmar-texto">¿Eliminar esta clase?</p>
+                      <button class="menu-btn menu-btn-confirmar" type="button" (click)="eliminarClase(video, $event)">
+                        Sí, eliminar
+                      </button>
+                      <button class="menu-btn menu-btn-cancelar" type="button" (click)="cancelarEliminar($event)">
+                        Cancelar
+                      </button>
+                    } @else {
+                      <button class="menu-btn menu-btn-eliminar" type="button" (click)="iniciarConfirmacionEliminar(video.id, $event)">
+                        Eliminar clase
+                      </button>
+                    }
+                  </div>
+                }
+
                 <button class="recent-card-hit" type="button" (click)="abrirClase(video.id, video)">
                   <div class="recent-visual">
                     <img
@@ -98,10 +123,12 @@
                     <div class="recent-pill">{{ video.asignatura || 'Sin asignatura' }}</div>
                     <div class="recent-card-content">
                       <h3>{{ video.titulo }}</h3>
-                      <p>Duracion: {{ duracionEstimadaVideo(video) }}</p>
-                      @if (estaClaseCompletada(video)) {
-                        <p>Completado</p>
-                      }
+                      <p>
+                        <span class="estado-clase" [class.completado]="estaClaseCompletada(video)">
+                          {{ estaClaseCompletada(video) ? 'Completado' : 'No completado' }}
+                        </span>
+                        · Duración: {{ duracionEstimadaVideo(video) }}
+                      </p>
                     </div>
                   </div>
                 </button>
@@ -161,6 +188,13 @@
             <section class="video-block">
               <div class="video-heading">
                 <div class="class-title-group">
+                  @if (mostrarVolverClase) {
+                    <button class="clase-back-icon" type="button" (click)="volverAlOrigen()" aria-label="Volver">
+                      <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
+                        <path d="M11 4L6 9L11 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </button>
+                  }
                   <p class="eyebrow">{{ fuenteClase }}</p>
                   <h1>{{ tituloClase }}</h1>
                   <div class="class-meta-pills" aria-label="Metadatos de la clase">
@@ -255,13 +289,24 @@
                 class="player-frame"
                 [style.background-image]="'url(' + thumbnailClase + ')'">
                 @if (urlEmbedClase) {
-                  <iframe
-                    [id]="idIframeClase"
-                    [src]="urlEmbedClase"
-                    frameborder="0"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowfullscreen>
-                  </iframe>
+                  <!-- @for con track reproductorKey recrea el iframe al cambiar de segundo -->
+                  @for (key of [reproductorKey]; track key) {
+                    <iframe
+                      [src]="urlEmbedClase"
+                      frameborder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      referrerpolicy="strict-origin-when-cross-origin"
+                      allowfullscreen>
+                    </iframe>
+                  }
+                } @else if (youtubeIdClase) {
+                  <!-- Hay vídeo pero el embed no está disponible: fallback a YouTube -->
+                  <div class="player-placeholder">
+                    <span>Este vídeo no permite reproducción incrustada.</span>
+                    <a class="player-youtube-link" [href]="urlYoutubeClase" target="_blank" rel="noopener">
+                      Abrir en YouTube ↗
+                    </a>
+                  </div>
                 } @else {
                   <div class="player-placeholder">
                     <span>Video en preparacion</span>
@@ -469,23 +514,241 @@
     }
 
     @if (vistaActual === 'cursos') {
-      <main class="library-page">
-        <div class="library-heading">
-          <p class="eyebrow">Mis Cursos</p>
-          <h1>Asignaturas</h1>
-          <span>Organiza las clases procesadas por categoria para volver a ellas sin depender solo del historial.</span>
+      <main class="cursos-page">
+        <div class="cursos-cabecera">
+          <div>
+            <p class="eyebrow">Mis Cursos</p>
+            <h1>Asignaturas</h1>
+            <p class="cursos-subtitulo">Organiza tus clases grabadas por asignatura y búscalas semánticamente.</p>
+          </div>
+          <button class="btn-nueva-asignatura" type="button" (click)="abrirModalNuevaAsignatura()">
+            + Nueva asignatura
+          </button>
         </div>
 
-        <section class="course-grid">
-          @for (curso of cursosVista; track curso.nombre) {
-            <article class="course-card">
-              <div class="course-accent" [style.background]="curso.acento"></div>
-              <h2>{{ curso.nombre }}</h2>
-              <p>{{ curso.descripcion }}</p>
-              <span>{{ curso.clases }} clases procesadas</span>
-            </article>
-          }
-        </section>
+        @if (cargandoAsignaturas) {
+          <div class="asignaturas-grid">
+            <div class="asignatura-card skeleton-card"></div>
+            <div class="asignatura-card skeleton-card"></div>
+            <div class="asignatura-card skeleton-card"></div>
+          </div>
+        } @else if (asignaturas.length === 0) {
+          <div class="cursos-vacio">
+            <h3>Aún no tienes asignaturas</h3>
+            <p>Crea una asignatura y asigna tus clases desde la vista de clase.</p>
+            <button class="btn-nueva-asignatura" type="button" (click)="abrirModalNuevaAsignatura()">
+              Crear primera asignatura
+            </button>
+          </div>
+        } @else {
+          <div class="asignaturas-grid">
+            @for (asignatura of asignaturas; track asignatura.id) {
+              <article class="asignatura-card" (click)="cargarDetalleAsignatura(asignatura.id)">
+                <div class="asignatura-card-top">
+                  <span class="asignatura-badge">{{ asignatura.numeroClases }} clases</span>
+                </div>
+                <h2 class="asignatura-nombre">{{ asignatura.nombre }}</h2>
+                @if (asignatura.profesor) {
+                  <p class="asignatura-profesor">{{ asignatura.profesor }}</p>
+                }
+                @if (asignatura.descripcion) {
+                  <p class="asignatura-descripcion">{{ asignatura.descripcion }}</p>
+                }
+                <p class="asignatura-fecha">{{ formatearFechaRelativa(asignatura.fechaActualizacion) }}</p>
+              </article>
+            }
+          </div>
+        }
+      </main>
+    }
+
+    @if (vistaActual === 'cursos-detalle') {
+      <main class="cursos-detalle-page">
+        @if (cargandoDetalleAsignatura) {
+          <section class="class-loading-state" [class.is-visible]="mostrandoSkeletonAsignatura || mostrandoMensajeAsignatura">
+            @if (mostrandoSkeletonAsignatura && !mostrandoMensajeAsignatura) {
+              <div class="asignatura-skeleton-layout" aria-hidden="true">
+                <div class="asignatura-skeleton-titulo"></div>
+                <div class="asignatura-skeleton-pills"></div>
+                <div class="asignatura-skeleton-desc"></div>
+                <div class="asignatura-skeleton-buscador"></div>
+                <div class="asignatura-skeleton-lista">
+                  <div class="asignatura-skeleton-item"></div>
+                  <div class="asignatura-skeleton-item"></div>
+                  <div class="asignatura-skeleton-item"></div>
+                </div>
+              </div>
+            }
+            @if (mostrandoMensajeAsignatura) {
+              <div class="class-loading-copy">
+                <div class="btn-spinner"></div>
+                <h1>Cargando asignatura</h1>
+                <p>Recuperando clases y conceptos...</p>
+              </div>
+            }
+          </section>
+        } @else if (errorAsignatura) {
+          <div class="class-loading-state">
+            <h1>{{ errorAsignatura }}</h1>
+            <button class="small-action" type="button" (click)="irACursos()">Volver a cursos</button>
+          </div>
+        } @else if (asignaturaDetalle) {
+          <!-- Header de la asignatura -->
+          <section class="asignatura-header">
+            <div class="asignatura-header-top">
+              <!-- Botón volver discreto (solo icono) -->
+              <button class="asignatura-back-icon" type="button" (click)="irACursos()" aria-label="Volver a asignaturas">
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                  <path d="M11 4L6 9L11 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+
+              <!-- Título + menú tres puntos -->
+              <div class="asignatura-titulo-row">
+                <h1 class="asignatura-titulo">{{ asignaturaDetalle.nombre }}</h1>
+
+                <!-- Menú tres puntos -->
+                <div class="asignatura-menu-wrap" (click)="$event.stopPropagation()">
+                  <button class="asignatura-menu-btn" type="button" aria-label="Opciones" (click)="alternarMenuAsignatura($event)">
+                    <span></span><span></span><span></span>
+                  </button>
+                  @if (menuAsignaturaAbierto) {
+                    <div class="menu-contextual asignatura-menu-dropdown">
+                      <button class="menu-btn menu-btn-eliminar" type="button" (click)="menuAsignaturaAbierto = false; abrirModalEliminarAsignatura()">
+                        Eliminar asignatura
+                      </button>
+                    </div>
+                  }
+                </div>
+              </div>
+            </div>
+
+            <!-- Pills de metadatos -->
+            <div class="asignatura-meta">
+              @if (profesorEfectivoAsignatura) {
+                <span class="meta-pill">
+                  <span class="meta-etiqueta">Profesor</span>
+                  <span class="meta-valor">{{ profesorEfectivoAsignatura }}</span>
+                </span>
+              }
+              <span class="meta-pill">
+                <span class="meta-etiqueta">Clases transcritas</span>
+                <span class="meta-valor">{{ asignaturaDetalle.numeroClases }}</span>
+              </span>
+              <span class="meta-pill">
+                <span class="meta-etiqueta">Conceptos desarrollados</span>
+                <span class="meta-valor">{{ asignaturaDetalle.conceptosTotales }}</span>
+              </span>
+              @if (asignaturaDetalle.horasProcesadas > 0) {
+                <span class="meta-pill">
+                  <span class="meta-etiqueta">Horas procesadas</span>
+                  <span class="meta-valor">{{ asignaturaDetalle.horasProcesadas }}h</span>
+                </span>
+              }
+            </div>
+
+            @if (asignaturaDetalle.descripcion) {
+              <p class="asignatura-descripcion-detalle">{{ asignaturaDetalle.descripcion }}</p>
+            }
+          </section>
+
+          <!-- Buscador semántico -->
+          <section class="asignatura-buscador-section">
+            <div class="asignatura-buscador-shell" [class.buscando]="cargandoBusquedaAsignatura">
+              <span class="buscador-icon">⌕</span>
+              <input
+                class="asignatura-buscador-input"
+                type="text"
+                [(ngModel)]="preguntaAsignatura"
+                placeholder="Consultar duda específica sobre el temario..."
+                (keydown.enter)="buscarEnAsignatura()"
+              />
+              @if (cargandoBusquedaAsignatura) {
+                <div class="btn-spinner buscador-spinner"></div>
+              } @else {
+                <button class="buscador-cta" type="button" (click)="buscarEnAsignatura()" [disabled]="!preguntaAsignatura.trim()">
+                  Buscar
+                </button>
+              }
+            </div>
+
+            @if (errorBusquedaAsignatura) {
+              <div class="status-message status-error">{{ errorBusquedaAsignatura }}</div>
+            }
+
+            @if (resultadosBusquedaAsignatura.length > 0) {
+              <div class="busqueda-asignatura-resultados">
+                <p class="resultados-label">{{ resultadosBusquedaAsignatura.length }} fragmentos encontrados</p>
+                @for (resultado of resultadosBusquedaAsignatura; track $index) {
+                  <button class="resultado-asignatura-item" type="button" (click)="abrirClase(resultado.idClase, undefined, asignaturaDetalle.id)">
+                    <div class="resultado-thumb">
+                      <img
+                        [src]="obtenerThumbnailYoutube(resultado.youtubeId)"
+                        [alt]="resultado.tituloClase"
+                        (error)="usarThumbnailFallback($event, resultado.youtubeId)"
+                      />
+                    </div>
+                    <div class="resultado-info">
+                      <p class="resultado-clase">{{ resultado.tituloClase }}</p>
+                      <p class="resultado-fragmento">{{ resultado.fragmento }}</p>
+                    </div>
+                    <div class="resultado-meta-derecha">
+                      <span class="resultado-tiempo">{{ formatearTiempo(resultado.tiempoInicio) }}</span>
+                      <span class="resultado-similitud">{{ formatearSimilitud(resultado.similitud) }}</span>
+                    </div>
+                  </button>
+                }
+              </div>
+            }
+          </section>
+
+          <!-- Cronología curricular -->
+          <section class="cronologia-section">
+            <div class="cronologia-cabecera">
+              <div>
+                <p class="section-eyebrow">CRONOLOGÍA CURRICULAR</p>
+                <span class="cronologia-sub">{{ asignaturaDetalle.conceptosTotales }} conceptos trabajados durante el curso</span>
+              </div>
+            </div>
+
+            @if (asignaturaDetalle.clases.length === 0) {
+              <div class="empty-state">
+                <h3>Sin clases asignadas</h3>
+                <p>Entra en una clase y asígnala a esta asignatura desde los metadatos.</p>
+              </div>
+            } @else {
+              <div class="cronologia-lista">
+                @for (clase of asignaturaDetalle.clases; track clase.id; let i = $index) {
+                  <button class="cronologia-item" type="button" (click)="abrirClase(clase.id, clase, asignaturaDetalle.id)">
+                    <div class="cronologia-thumb">
+                      <img
+                        [src]="obtenerThumbnailYoutube(clase.youtubeId)"
+                        [alt]="clase.titulo"
+                        (error)="usarThumbnailFallback($event, clase.youtubeId)"
+                      />
+                    </div>
+                    <div class="cronologia-play-icon" aria-hidden="true">
+                      <svg width="12" height="14" viewBox="0 0 12 14" fill="currentColor">
+                        <path d="M1 1.5L11 7L1 12.5V1.5Z"/>
+                      </svg>
+                    </div>
+                    <div class="cronologia-info">
+                      <h3>{{ clase.titulo }}</h3>
+                      <p>
+                        Duración: {{ duracionEstimadaVideo(clase) }}
+                        @if (clase.fechaCreacion) { · Fecha: {{ formatearFechaClase(clase.fechaCreacion) }} }
+                      </p>
+                    </div>
+                    <span class="cronologia-estado" [class.completado]="clase.completado">
+                      {{ clase.completado ? 'Completado' : 'No completado' }}
+                    </span>
+                  </button>
+                }
+              </div>
+            }
+          </section>
+
+        }
       </main>
     }
 
@@ -523,5 +786,78 @@
         }
       </main>
     }
+  </div>
+}
+
+<!-- Modal: Nueva asignatura -->
+@if (modalNuevaAsignatura) {
+  <div class="modal-overlay" (click)="cerrarModalNuevaAsignatura()">
+    <div class="modal-panel" (click)="$event.stopPropagation()">
+      <h2 class="modal-titulo">Nueva asignatura</h2>
+      <p class="modal-subtitulo">Puedes asignar clases a ella desde la vista de clase.</p>
+
+      <label class="modal-label">
+        Nombre <span class="modal-required">*</span>
+        <input class="modal-input" type="text" [(ngModel)]="nuevaAsignaturaNombre" placeholder="Ej: Ingeniería del Software" (keydown.enter)="guardarNuevaAsignatura()" />
+      </label>
+      <label class="modal-label">
+        Profesor
+        <input class="modal-input" type="text" [(ngModel)]="nuevaAsignaturaProfesor" placeholder="Ej: Manuel Martín" />
+      </label>
+      <label class="modal-label">
+        Descripción
+        <textarea class="modal-input modal-textarea" [(ngModel)]="nuevaAsignaturaDescripcion" placeholder="Descripción breve del temario..."></textarea>
+      </label>
+
+      @if (errorGuardarAsignatura) {
+        <div class="status-message status-error">{{ errorGuardarAsignatura }}</div>
+      }
+
+      <div class="modal-acciones">
+        <button class="modal-btn-cancelar" type="button" (click)="cerrarModalNuevaAsignatura()">Cancelar</button>
+        <button class="modal-btn-confirmar" type="button" (click)="guardarNuevaAsignatura()" [disabled]="guardandoAsignatura">
+          @if (guardandoAsignatura) { Guardando… } @else { Crear asignatura }
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Modal: Eliminar asignatura -->
+@if (modalEliminarAsignatura && asignaturaDetalle) {
+  <div class="modal-overlay" (click)="cerrarModalEliminarAsignatura()">
+    <div class="modal-panel modal-peligro" (click)="$event.stopPropagation()">
+      <h2 class="modal-titulo">Eliminar asignatura</h2>
+      <p class="modal-alerta">
+        Esta acción eliminará permanentemente <strong>{{ asignaturaDetalle.nombre }}</strong> y todas sus clases asociadas
+        (fragmentos, capítulos, conceptos y embeddings). No se puede deshacer.
+      </p>
+
+      <label class="modal-label">
+        Escribe <strong>{{ asignaturaDetalle.nombre }}</strong> para confirmar:
+        <input
+          class="modal-input modal-input-peligro"
+          type="text"
+          [(ngModel)]="eliminarAsignaturaConfirmacion"
+          [placeholder]="asignaturaDetalle.nombre"
+        />
+      </label>
+
+      @if (errorEliminarAsignatura) {
+        <div class="status-message status-error">{{ errorEliminarAsignatura }}</div>
+      }
+
+      <div class="modal-acciones">
+        <button class="modal-btn-cancelar" type="button" (click)="cerrarModalEliminarAsignatura()">Cancelar</button>
+        <button
+          class="modal-btn-eliminar"
+          type="button"
+          (click)="confirmarEliminarAsignatura()"
+          [disabled]="eliminandoAsignatura || eliminarAsignaturaConfirmacion !== asignaturaDetalle.nombre"
+        >
+          @if (eliminandoAsignatura) { Eliminando… } @else { Eliminar definitivamente }
+        </button>
+      </div>
+    </div>
   </div>
 }

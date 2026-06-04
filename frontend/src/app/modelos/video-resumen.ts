@@ -9,4 +9,5 @@ export interface VideoResumen {
   profesor: string;
   fechaClase: string | null;
   completado: boolean;
+  idAsignatura: number | null;
 }

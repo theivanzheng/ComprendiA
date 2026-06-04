@@ -13,5 +13,6 @@ public record VideoResumenDTO(
     String asignatura,
     String profesor,
     LocalDate fechaClase,
-    boolean completado
+    boolean completado,
+    Long idAsignatura
 ) {}

@@ -5,6 +5,7 @@ import es.comprendia.dto.RespuestaRagDTO;
 import es.comprendia.dto.ResultadoBusquedaDTO;
 import es.comprendia.dto.VideoMetadataDTO;
 import es.comprendia.dto.VideoResumenDTO;
+import es.comprendia.repositorio.AsignaturaRepositorio;
 import es.comprendia.repositorio.CapituloVideoRepositorio;
 import es.comprendia.repositorio.ConceptoClaveVideoRepositorio;
 import es.comprendia.repositorio.VideoRepositorio;
@@ -16,6 +17,7 @@ import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.PATCH;
@@ -38,6 +40,9 @@ public class TranscripcionConsultaRecurso {
     VideoConsultaServicio videoConsultaServicio;
 
     @Inject
+    es.comprendia.servicio.TranscripcionPersistenciaServicio transcripcionPersistenciaServicio;
+
+    @Inject
     FragmentoConsultaServicio fragmentoConsultaServicio;
 
     @Inject
@@ -48,6 +53,9 @@ public class TranscripcionConsultaRecurso {
 
     @Inject
     VideoRepositorio videoRepositorio;
+
+    @Inject
+    AsignaturaRepositorio asignaturaRepositorio;
 
     @Inject
     CapituloVideoRepositorio capituloVideoRepositorio;
@@ -102,6 +110,19 @@ public class TranscripcionConsultaRecurso {
         return Response.ok(conceptoClaveVideoRepositorio.buscarPorVideoOrdenado(id)).build();
     }
 
+    @DELETE
+    @Path("/{id}")
+    @Transactional
+    public Response eliminarTranscripcion(@PathParam("id") Long id) {
+        if (videoRepositorio.findById(id) == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                .entity(Map.of("error", "Vídeo no encontrado"))
+                .build();
+        }
+        transcripcionPersistenciaServicio.eliminarVideoCompleto(id);
+        return Response.noContent().build();
+    }
+
     @PATCH
     @Path("/{id}/titulo")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -152,6 +173,18 @@ public class TranscripcionConsultaRecurso {
         }
         if (metadata.completado() != null) {
             video.completado = metadata.completado();
+        }
+
+        if (metadata.idAsignatura() != null) {
+            es.comprendia.entidad.Asignatura asignatura = asignaturaRepositorio.findById(metadata.idAsignatura());
+            if (asignatura == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                    .entity(Map.of("error", "Asignatura no encontrada"))
+                    .build();
+            }
+            video.asignaturaObj = asignatura;
+            video.asignatura = asignatura.nombre;
+            asignatura.fechaActualizacion = java.time.LocalDateTime.now();
         }
 
         return Response.ok(videoConsultaServicio.obtenerVideo(id)).build();
