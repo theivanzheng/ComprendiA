@@ -36,14 +36,33 @@ public class VideoConsultaServicio {
         Map<Long, Long> conteoPorVideo = fragmentoRepositorio.contarPorVideos(idsVideo);
 
         return videos.stream()
-            .map(v -> new VideoResumenDTO(
-                v.id,
-                v.youtubeId,
-                v.titulo,
-                v.fechaCreacion,
-                v.fuenteTranscripcion,
-                conteoPorVideo.getOrDefault(v.id, 0L)
-            ))
+            .map(v -> convertirAResumen(v, conteoPorVideo.getOrDefault(v.id, 0L)))
             .toList();
+    }
+
+    @Transactional
+    public VideoResumenDTO obtenerVideo(Long id) {
+        Video video = videoRepositorio.findById(id);
+        if (video == null) {
+            return null;
+        }
+
+        long numeroFragmentos = fragmentoRepositorio.count("video.id", id);
+        return convertirAResumen(video, numeroFragmentos);
+    }
+
+    private VideoResumenDTO convertirAResumen(Video video, long numeroFragmentos) {
+        return new VideoResumenDTO(
+            video.id,
+            video.youtubeId,
+            video.titulo,
+            video.fechaCreacion,
+            video.fuenteTranscripcion,
+            numeroFragmentos,
+            video.asignatura == null || video.asignatura.isBlank() ? "Sin asignatura" : video.asignatura,
+            video.profesor == null || video.profesor.isBlank() ? "Profesor pendiente" : video.profesor,
+            video.fechaClase,
+            Boolean.TRUE.equals(video.completado)
+        );
     }
 }

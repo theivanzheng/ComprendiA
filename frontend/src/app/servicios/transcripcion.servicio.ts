@@ -11,6 +11,13 @@ import { RespuestaRag } from '../modelos/respuesta-rag';
 import { CapituloVideo } from '../modelos/capitulo-video';
 import { ConceptoClaveVideo } from '../modelos/concepto-clave-video';
 
+export interface VideoMetadata {
+  asignatura?: string;
+  profesor?: string;
+  fechaClase?: string;
+  completado?: boolean;
+}
+
 @Injectable({ providedIn: 'root' })
 export class TranscripcionServicio {
 
@@ -45,8 +52,19 @@ export class TranscripcionServicio {
     );
   }
 
+  actualizarMetadata(id: number, metadata: VideoMetadata): Observable<VideoResumen> {
+    return this.http.patch<VideoResumen>(
+      `${this.urlBase}/transcripciones/${id}/metadata`,
+      metadata
+    );
+  }
+
   obtenerHistorial(): Observable<VideoResumen[]> {
     return this.http.get<VideoResumen[]>(`${this.urlBase}/transcripciones`);
+  }
+
+  obtenerVideo(id: number): Observable<VideoResumen> {
+    return this.http.get<VideoResumen>(`${this.urlBase}/transcripciones/${id}`);
   }
 
   obtenerFragmentos(id: number): Observable<FragmentoVideo[]> {

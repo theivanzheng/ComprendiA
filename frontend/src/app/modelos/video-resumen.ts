@@ -5,4 +5,8 @@ export interface VideoResumen {
   fechaCreacion: string;
   fuenteTranscripcion: string;
   numeroFragmentos: number;
+  asignatura: string;
+  profesor: string;
+  fechaClase: string | null;
+  completado: boolean;
 }

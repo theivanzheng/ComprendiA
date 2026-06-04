@@ -44,6 +44,15 @@ public class ChatGptServicio {
         return enviarSolicitud(cuerpo);
     }
 
+    public String completarPersonalizado(String sistema, String usuario, int maxTokens, double temperature) {
+        if (claveApi.isBlank()) {
+            throw new IllegalStateException("OPENAI_API_KEY no configurada");
+        }
+
+        String cuerpo = construirCuerpoPersonalizado(sistema, usuario, maxTokens, temperature);
+        return enviarSolicitud(cuerpo);
+    }
+
     public String completarEstructurado(String sistema, String usuario, int maxTokens) {
         if (claveApi.isBlank()) {
             throw new IllegalStateException("OPENAI_API_KEY no configurada");
@@ -90,6 +99,22 @@ public class ChatGptServicio {
                     Map.of("role", "user", "content",
                         "Fragmentos relevantes de la transcripcion:\n" + contexto +
                         "\n\nPregunta: " + pregunta)
+                )
+            ));
+        } catch (Exception e) {
+            throw new IllegalStateException("Error al construir el cuerpo de la peticion", e);
+        }
+    }
+
+    private String construirCuerpoPersonalizado(String sistema, String usuario, int maxTokens, double temperature) {
+        try {
+            return mapeadorJson.writeValueAsString(Map.of(
+                "model", MODELO,
+                "temperature", temperature,
+                "max_tokens", maxTokens,
+                "messages", List.of(
+                    Map.of("role", "system", "content", sistema),
+                    Map.of("role", "user", "content", usuario)
                 )
             ));
         } catch (Exception e) {

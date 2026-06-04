@@ -5,6 +5,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
@@ -22,4 +23,16 @@ public class Video extends PanacheEntity {
 
     @Column(name = "fecha_creacion", nullable = false)
     public LocalDateTime fechaCreacion;
+
+    @Column
+    public String asignatura;
+
+    @Column
+    public String profesor;
+
+    @Column(name = "fecha_clase")
+    public LocalDate fechaClase;
+
+    @Column
+    public Boolean completado = false;
 }

@@ -22,7 +22,11 @@
       "Read(//usr/local/Cellar/**)",
       "Bash(\"/Applications/IntelliJ IDEA.app/Contents/plugins/maven/lib/maven3/bin/mvn\" -f /Users/administrador/Documents/UPSA/Cuarto/TFG/Comprendia/backend/pom.xml test)",
       "Bash(npx ng *)",
-      "Bash(git check-ignore *)"
+      "Bash(git check-ignore *)",
+      "WebFetch(domain:emilkowal.ski)",
+      "WebFetch(domain:www.tasteskill.dev)",
+      "WebFetch(domain:www.claudepluginhub.com)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

@@ -2,6 +2,20 @@
 
 Aplicación educativa que transcribe vídeos de YouTube, genera embeddings por fragmento y permite búsqueda semántica sobre el contenido.
 
+## Cambios integrados recientemente
+
+- La vista de clase ya tiene URL propia mediante hash routing: `#/clase/{id}`. Al refrescar, la aplicación vuelve a cargar esa clase desde el backend.
+- El backend expone `GET /api/transcripciones/{id}` para recuperar una clase concreta sin depender del historial cargado en memoria.
+- Los metadatos de clase se persisten en backend: `asignatura`, `profesor`, `fechaClase` y `completado`.
+- La asignatura y el profesor se editan desde PILs tipo Notion, permitiendo elegir una opción existente o crear una nueva.
+- La fecha de clase es editable y se guarda junto al vídeo.
+- La duración se calcula automáticamente desde los tiempos/fragmentos disponibles; no la introduce el usuario.
+- El estado `Completado` ya no depende de `localStorage`: se guarda en backend y puede marcarse manualmente desde la pantalla de clase.
+- Si el reproductor de YouTube emite el evento de vídeo terminado, la clase se marca automáticamente como completada.
+- Las tarjetas de la home y de clases relacionadas usan thumbnails reales de YouTube con overlay oscuro para mantener legibilidad.
+- El chat diferencia mejor entre preguntas globales de resumen y preguntas concretas sobre fragmentos, usando contexto global de capítulos, conceptos y fragmentos representativos cuando corresponde.
+- El input del chat se limpia al enviar y el botón de envío muestra una animación de procesamiento.
+
 ## Estructura funcional prevista
 
 - `Mis Cursos` representa el conjunto de cursos o asignaturas que tiene el usuario.
@@ -19,8 +33,8 @@ La pantalla que aparece después de pulsar `Analizar` sustituye por completo a l
 - Zona izquierda con el reproductor del vídeo como elemento principal.
 - Timeline bajo el reproductor con capítulos.
 - Panel derecho fijo con `Asistente ComprendiA`.
-- Debajo del vídeo, metadatos editables de la clase.
-- Secciones inferiores para `Conceptos clave`, `Resumen de la clase` y `Clases relacionadas`.
+- En la cabecera de la clase, PILs editables para asignatura, profesor y fecha.
+- Secciones inferiores para `Resumen de la clase`, `Conceptos clave` y `Clases relacionadas`.
 
 **Reproductor y capítulos:**
 - El reproductor debe incluir una timeline con capítulos.
@@ -36,14 +50,17 @@ La pantalla que aparece después de pulsar `Analizar` sustituye por completo a l
 - El usuario podrá lanzar preguntas desde los conceptos clave.
 
 **Metadatos editables:**
-- La asignatura y la fecha se muestran bajo el reproductor.
-- Ambos campos deben ser editables.
+- La asignatura, el profesor y la fecha se muestran como PILs en la cabecera de la clase.
+- La asignatura y el profesor usan un selector tipo Notion: se puede elegir una opción existente o escribir una nueva.
+- La duración se muestra como dato calculado del vídeo y no se edita manualmente.
+- El estado de completado se puede marcar manualmente desde los botones del profesor junto al reproductor.
 - La asignatura sirve para categorizar la clase dentro de `Mis Cursos`.
 - `Mis Cursos` debe llevar a una página real con un grid de asignaturas.
 - Dentro de cada asignatura se mostrarán las clases procesadas que el usuario haya asignado a esa categoría.
 
 **Conceptos clave:**
-- Los conceptos clave se mostrarán como listado, no como tarjetas.
+- Los conceptos clave se muestran como tarjetas compactas en varias columnas.
+- La sección incluye buscador para filtrar conceptos por título o definición.
 - Cada concepto tendrá una definición corta.
 - Cada concepto tendrá un timestamp clicable para saltar al momento correspondiente del vídeo.
 - Cada concepto permitirá lanzar una pregunta al chat.
@@ -52,12 +69,18 @@ La pantalla que aparece después de pulsar `Analizar` sustituye por completo a l
 **Resumen de la clase:**
 - El resumen será corto.
 - Debe explicar cómo empieza la clase, qué se hace durante la sesión y con qué resultado termina.
+- Actualmente se coloca antes de `Conceptos clave` para que el usuario entienda primero el contexto global de la clase.
 
 **Clases relacionadas:**
 - La sección se llamará `Clases relacionadas`.
 - De momento puede usar placeholders.
 - En el futuro mostrará clases de la misma asignatura con fechas cercanas al vídeo actual.
 - Al pulsar una clase relacionada, se abrirá esta misma pantalla de detalle sustituyendo la clase actual.
+
+**Navegación real:**
+- La home, cursos e historial usan rutas hash simples.
+- Una clase concreta se abre en `#/clase/{id}`.
+- Esto evita que un refresh vuelva siempre a la home.
 
 **Estado de procesamiento:**
 - Si el vídeo todavía se está analizando, el estado debe aparecer bajo el reproductor de forma sutil.
@@ -140,9 +163,12 @@ Abre el navegador en **http://localhost:4200**
 ## Probar el flujo completo
 
 **Desde el navegador:**
-1. Pega una URL de YouTube y pulsa "Procesar vídeo"
-2. Observa el progreso paso a paso (descarga → transcripción → guardado → embeddings)
-3. Cuando termine, escribe una pregunta para buscar semánticamente
+1. Pega una URL de YouTube y pulsa `Analizar`.
+2. Observa el progreso paso a paso: descarga, transcripción, guardado, embeddings y análisis educativo.
+3. Al terminar, se abre la clase en `#/clase/{id}`.
+4. Edita asignatura, profesor o fecha desde los PILs superiores.
+5. Usa el chat para preguntas globales, como `Resume la clase`, o preguntas concretas sobre un concepto.
+6. Marca la clase como completada manualmente o espera a terminar el vídeo.
 
 **Formatos de URL admitidos:**
 - `https://www.youtube.com/watch?v=ID`
@@ -183,10 +209,14 @@ curl "http://localhost:8080/api/transcripciones/{id}/buscar?pregunta=¿De qué t
 | GET | `/api/transcripciones/youtube/{idTrabajo}` | Estado del trabajo en curso |
 | POST | `/api/transcripciones/youtube/{idTrabajo}/cancelar` | Cancelar un trabajo de análisis en curso |
 | GET | `/api/transcripciones` | Historial paginado de vídeos |
+| GET | `/api/transcripciones/{id}` | Detalle/resumen de una clase concreta |
+| PATCH | `/api/transcripciones/{id}/metadata` | Actualizar asignatura, profesor, fecha de clase o completado |
+| PATCH | `/api/transcripciones/{id}/titulo` | Actualizar el título editable de una clase |
 | GET | `/api/transcripciones/{id}/fragmentos` | Fragmentos de un vídeo |
 | GET | `/api/transcripciones/{id}/capitulos` | Capítulos generados para navegar la clase |
 | GET | `/api/transcripciones/{id}/conceptos` | Conceptos clave detectados en la clase |
 | GET | `/api/transcripciones/{id}/buscar?pregunta=...` | Búsqueda semántica |
+| GET | `/api/transcripciones/{id}/responder?pregunta=...` | Respuesta del asistente ComprendiA con RAG |
 
 ---
 
@@ -209,6 +239,26 @@ Después de generar embeddings, el backend ejecuta un análisis educativo de la 
 - Guarda los capítulos en `capitulos_video`.
 - Guarda los conceptos en `conceptos_clave_video`.
 - Si OpenAI no está disponible o devuelve una respuesta inválida, se usa un fallback local basado en bloques temporales de fragmentos para no romper el procesamiento.
+
+### Metadata persistente de clase
+
+La entidad `Video` guarda también información editable por el usuario:
+
+- `asignatura`: permite agrupar la clase dentro de `Mis Cursos`.
+- `profesor`: identifica al docente o responsable de la clase.
+- `fecha_clase`: fecha académica asignada por el usuario.
+- `completado`: indica si la clase se ha visto o se ha marcado como completada.
+
+En desarrollo, Hibernate está configurado con `quarkus.hibernate-orm.database.generation=update`, por lo que añade columnas nuevas al reiniciar el backend. Para vídeos antiguos, si `completado` viene como `NULL`, la API lo normaliza a `false`.
+
+### Flujo del asistente ComprendiA
+
+El chat distingue entre dos tipos de preguntas:
+
+- Preguntas globales: resumen, puntos importantes, qué se consigue o qué muestra el vídeo.
+- Preguntas concretas: dudas sobre un concepto, una explicación o un fragmento específico.
+
+Para preguntas globales, el backend construye contexto con título, capítulos, conceptos clave y fragmentos distribuidos de toda la clase. Para preguntas concretas, usa búsqueda semántica sobre fragmentos y responde con las fuentes correspondientes.
 
 ---
 

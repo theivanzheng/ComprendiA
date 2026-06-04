@@ -3,6 +3,7 @@ package es.comprendia.recurso;
 import es.comprendia.dto.FragmentoDTO;
 import es.comprendia.dto.RespuestaRagDTO;
 import es.comprendia.dto.ResultadoBusquedaDTO;
+import es.comprendia.dto.VideoMetadataDTO;
 import es.comprendia.dto.VideoResumenDTO;
 import es.comprendia.repositorio.CapituloVideoRepositorio;
 import es.comprendia.repositorio.ConceptoClaveVideoRepositorio;
@@ -62,6 +63,18 @@ public class TranscripcionConsultaRecurso {
     }
 
     @GET
+    @Path("/{id}")
+    public Response obtenerTranscripcion(@PathParam("id") Long id) {
+        VideoResumenDTO video = videoConsultaServicio.obtenerVideo(id);
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                .entity(Map.of("error", "Vídeo no encontrado"))
+                .build();
+        }
+        return Response.ok(video).build();
+    }
+
+    @GET
     @Path("/{id}/fragmentos")
     public List<FragmentoDTO> obtenerFragmentos(@PathParam("id") Long id) {
         return fragmentoConsultaServicio.obtenerPorVideoId(id);
@@ -108,6 +121,47 @@ public class TranscripcionConsultaRecurso {
         }
         video.titulo = titulo.strip();
         return Response.ok().build();
+    }
+
+    @PATCH
+    @Path("/{id}/metadata")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Transactional
+    public Response actualizarMetadata(@PathParam("id") Long id, VideoMetadataDTO metadata) {
+        var video = videoRepositorio.findById(id);
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                .entity(Map.of("error", "Vídeo no encontrado"))
+                .build();
+        }
+
+        if (metadata == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                .entity(Map.of("error", "La metadata no puede estar vacía"))
+                .build();
+        }
+
+        if (metadata.asignatura() != null) {
+            video.asignatura = normalizarMetadata(metadata.asignatura(), "Sin asignatura");
+        }
+        if (metadata.profesor() != null) {
+            video.profesor = normalizarMetadata(metadata.profesor(), "Profesor pendiente");
+        }
+        if (metadata.fechaClase() != null) {
+            video.fechaClase = metadata.fechaClase();
+        }
+        if (metadata.completado() != null) {
+            video.completado = metadata.completado();
+        }
+
+        return Response.ok(videoConsultaServicio.obtenerVideo(id)).build();
+    }
+
+    private String normalizarMetadata(String valor, String valorPorDefecto) {
+        if (valor == null || valor.isBlank()) {
+            return valorPorDefecto;
+        }
+        return valor.strip();
     }
 
     @GET

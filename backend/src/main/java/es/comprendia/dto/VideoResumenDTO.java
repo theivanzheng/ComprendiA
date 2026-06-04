@@ -1,5 +1,6 @@
 package es.comprendia.dto;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 public record VideoResumenDTO(
@@ -8,5 +9,9 @@ public record VideoResumenDTO(
     String titulo,
     LocalDateTime fechaCreacion,
     String fuenteTranscripcion,
-    long numeroFragmentos
+    long numeroFragmentos,
+    String asignatura,
+    String profesor,
+    LocalDate fechaClase,
+    boolean completado
 ) {}

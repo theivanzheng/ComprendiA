@@ -12,6 +12,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,6 +40,10 @@ public class TranscripcionPersistenciaServicio {
         video.titulo = respuesta.getTitulo();
         video.fuenteTranscripcion = respuesta.getFuenteTranscripcion();
         video.fechaCreacion = LocalDateTime.now();
+        video.asignatura = "Sin asignatura";
+        video.profesor = "Profesor pendiente";
+        video.fechaClase = LocalDate.now();
+        video.completado = false;
         videoRepositorio.persist(video);
         videoRepositorio.flush();
         respuesta.setIdTranscripcion(video.id);

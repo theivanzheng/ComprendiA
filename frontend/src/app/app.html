@@ -3,15 +3,15 @@
     <div class="home-noise"></div>
 
     <header class="page-header">
-      <a class="brand" href="#" (click)="irAHome(); $event.preventDefault()">
+      <button class="brand" type="button" (click)="irAHome()">
         <div class="brand-mark">C</div>
         <span class="brand-text">ComprendiA</span>
-      </a>
+      </button>
 
       <nav class="site-nav" aria-label="Principal">
-        <a class="nav-link activo" href="#" (click)="irAHome(); $event.preventDefault()">Inicio</a>
-        <a class="nav-link" href="#" (click)="irACursos(); $event.preventDefault()">Mis Cursos</a>
-        <a class="nav-link" href="#" (click)="irAHistorial(); $event.preventDefault()">Historial</a>
+        <button class="nav-link activo" type="button" (click)="irAHome()">Inicio</button>
+        <button class="nav-link" type="button" (click)="irACursos()">Mis Cursos</button>
+        <button class="nav-link" type="button" (click)="irAHistorial()">Historial</button>
       </nav>
     </header>
 
@@ -82,17 +82,26 @@
           <div class="recent-grid">
             @for (video of historial; track video.id; let index = $index) {
               <article class="recent-card">
-                <button class="recent-card-hit" type="button" (click)="abrirClaseDesdeHome(video)">
-                  <div class="recent-visual" [class.visual-board]="index === 0" [class.visual-portrait]="index === 1" [class.visual-lecture]="index > 1">
+                <button class="recent-menu" type="button" aria-label="Opciones de clase">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </button>
+                <button class="recent-card-hit" type="button" (click)="abrirClase(video.id, video)">
+                  <div class="recent-visual">
+                    <img
+                      [src]="obtenerThumbnailYoutube(video.youtubeId)"
+                      [alt]="video.titulo"
+                      (error)="usarThumbnailFallback($event, video.youtubeId)"
+                    />
                     <div class="recent-overlay"></div>
-                    <div class="recent-pill">Clase {{ video.id }}</div>
+                    <div class="recent-pill">{{ video.asignatura || 'Sin asignatura' }}</div>
                     <div class="recent-card-content">
                       <h3>{{ video.titulo }}</h3>
-                      <p>{{ video.numeroFragmentos }} fragmentos procesados</p>
-                      <div class="recent-meta">
-                        <span>Clase analizada</span>
-                        <span>{{ video.fuenteTranscripcion }}</span>
-                      </div>
+                      <p>Duracion: {{ duracionEstimadaVideo(video) }}</p>
+                      @if (estaClaseCompletada(video)) {
+                        <p>Completado</p>
+                      }
                     </div>
                   </div>
                 </button>
@@ -106,34 +115,148 @@
 } @else {
   <div class="detail-shell">
     <header class="page-header">
-      <a class="brand" href="#" (click)="irAHome(); $event.preventDefault()">
+      <button class="brand" type="button" (click)="irAHome()">
         <div class="brand-mark">C</div>
         <span class="brand-text">ComprendiA</span>
-      </a>
+      </button>
 
       <nav class="site-nav" aria-label="Principal">
-        <a class="nav-link" href="#" (click)="irAHome(); $event.preventDefault()">Inicio</a>
-        <a class="nav-link" [class.activo]="vistaActual === 'cursos'" href="#" (click)="irACursos(); $event.preventDefault()">Mis Cursos</a>
-        <a class="nav-link" [class.activo]="vistaActual === 'historial'" href="#" (click)="irAHistorial(); $event.preventDefault()">Historial</a>
+        <button class="nav-link" type="button" (click)="irAHome()">Inicio</button>
+        <button class="nav-link" [class.activo]="vistaActual === 'cursos'" type="button" (click)="irACursos()">Mis Cursos</button>
+        <button class="nav-link" [class.activo]="vistaActual === 'historial'" type="button" (click)="irAHistorial()">Historial</button>
       </nav>
     </header>
 
     @if (vistaActual === 'clase') {
       <main class="class-page">
+        @if (cargandoClase) {
+          <section class="class-loading-state" [class.is-visible]="mostrandoSkeletonClase">
+            @if (mostrandoSkeletonClase) {
+              <div class="class-skeleton-layout" aria-hidden="true">
+                <div class="class-skeleton-main">
+                  <div class="class-skeleton-title"></div>
+                  <div class="class-skeleton-player"></div>
+                  <div class="class-skeleton-row"></div>
+                </div>
+                <div class="class-skeleton-side"></div>
+              </div>
+            }
+            @if (mostrandoMensajeCargaClase) {
+              <div class="class-loading-copy">
+                <div class="btn-spinner"></div>
+                <h1>Cargando clase</h1>
+                <p>Recuperando la información del vídeo procesado.</p>
+              </div>
+            }
+          </section>
+        } @else if (errorCargaClase) {
+          <section class="class-loading-state">
+            <h1>No se pudo cargar la clase</h1>
+            <p>{{ errorCargaClase }}</p>
+            <button class="small-action" type="button" (click)="irAHome()">Volver al inicio</button>
+          </section>
+        } @else {
         <section class="class-layout">
           <div class="class-main">
             <section class="video-block">
               <div class="video-heading">
-                <div>
+                <div class="class-title-group">
                   <p class="eyebrow">{{ fuenteClase }}</p>
                   <h1>{{ tituloClase }}</h1>
+                  <div class="class-meta-pills" aria-label="Metadatos de la clase">
+                    <div class="meta-pill-shell" (click)="$event.stopPropagation()">
+                      <button
+                        class="class-meta-pill is-editable"
+                        type="button"
+                        (click)="alternarSelectorMetadato('asignatura')">
+                        <strong>Asignatura:</strong>
+                        <span>{{ asignaturaClase }}</span>
+                        <i aria-hidden="true"></i>
+                      </button>
+
+                      @if (selectorMetadatoAbierto === 'asignatura') {
+                        <div class="notion-select-popover">
+                          <input
+                            type="text"
+                            [(ngModel)]="busquedaAsignatura"
+                            placeholder="Buscar o crear asignatura"
+                            (keydown.enter)="crearAsignaturaDesdeBusqueda()"
+                            (keydown.escape)="cerrarSelectorMetadato()"
+                          />
+                          <p>Selecciona una opcion o crea una</p>
+                          <div class="notion-option-list">
+                            @for (asignatura of asignaturasFiltradas; track asignatura) {
+                              <button type="button" (click)="seleccionarAsignatura(asignatura)">
+                                <span class="option-handle" aria-hidden="true"></span>
+                                <span class="option-chip">{{ asignatura }}</span>
+                              </button>
+                            }
+                            @if (puedeCrearAsignatura) {
+                              <button class="create-option" type="button" (click)="crearAsignaturaDesdeBusqueda()">
+                                Crear "{{ busquedaAsignatura }}"
+                              </button>
+                            }
+                          </div>
+                        </div>
+                      }
+                    </div>
+
+                    <div class="meta-pill-shell" (click)="$event.stopPropagation()">
+                      <button
+                        class="class-meta-pill is-editable"
+                        type="button"
+                        (click)="alternarSelectorMetadato('profesor')">
+                        <strong>Profesor:</strong>
+                        <span>{{ profesorClase }}</span>
+                        <i aria-hidden="true"></i>
+                      </button>
+
+                      @if (selectorMetadatoAbierto === 'profesor') {
+                        <div class="notion-select-popover">
+                          <input
+                            type="text"
+                            [(ngModel)]="busquedaProfesor"
+                            placeholder="Buscar o crear profesor"
+                            (keydown.enter)="crearProfesorDesdeBusqueda()"
+                            (keydown.escape)="cerrarSelectorMetadato()"
+                          />
+                          <p>Selecciona una opcion o crea una</p>
+                          <div class="notion-option-list">
+                            @for (profesor of profesoresFiltrados; track profesor) {
+                              <button type="button" (click)="seleccionarProfesor(profesor)">
+                                <span class="option-handle" aria-hidden="true"></span>
+                                <span class="option-chip">{{ profesor }}</span>
+                              </button>
+                            }
+                            @if (puedeCrearProfesor) {
+                              <button class="create-option" type="button" (click)="crearProfesorDesdeBusqueda()">
+                                Crear "{{ busquedaProfesor }}"
+                              </button>
+                            }
+                          </div>
+                        </div>
+                      }
+                    </div>
+
+                    <span class="class-meta-pill">
+                      <strong>Duracion:</strong>
+                      <span>{{ duracionClase }}</span>
+                    </span>
+
+                    <label class="class-meta-pill date-pill">
+                      <strong>Fecha:</strong>
+                      <input type="date" [(ngModel)]="fechaClase" (change)="guardarMetadataClase()" aria-label="Fecha de la clase" />
+                    </label>
+                  </div>
                 </div>
-                <button class="small-action" type="button" (click)="irAHistorial()">Cambiar clase</button>
               </div>
 
-              <div class="player-frame">
+              <div
+                class="player-frame"
+                [style.background-image]="'url(' + thumbnailClase + ')'">
                 @if (urlEmbedClase) {
                   <iframe
+                    [id]="idIframeClase"
                     [src]="urlEmbedClase"
                     frameborder="0"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
@@ -146,16 +269,48 @@
                 }
               </div>
 
+              <div class="annotation-actions" aria-label="Acciones rapidas del profesor">
+                <button class="annotation-action" type="button" (click)="abrirAnadirCapitulo($event)">
+                  <span>+</span>
+                  Anadir capitulo
+                </button>
+                <button class="annotation-action" type="button" (click)="abrirAnadirConcepto($event)">
+                  <span>i</span>
+                  Anadir concepto
+                </button>
+                <button
+                  class="annotation-action completion-action"
+                  type="button"
+                  [class.is-complete]="claseActualCompletada"
+                  (click)="alternarClaseCompletada()">
+                  <span class="completion-dot" aria-hidden="true"></span>
+                  {{ claseActualCompletada ? 'Completada' : 'Marcar como completa' }}
+                </button>
+              </div>
+
               <div class="chapter-timeline" aria-label="Capitulos de la clase">
-                <div class="timeline-rail"></div>
-                @for (capitulo of capitulosClase; track $index) {
-                  <button class="chapter-item" type="button" (click)="saltarATiempo(capitulo.tiempo)">
-                    <span class="chapter-dot"></span>
-                    <span class="chapter-time">{{ formatearTiempo(capitulo.tiempo) }}</span>
-                    <strong>{{ capitulo.titulo }}</strong>
-                    <span class="chapter-description">{{ capitulo.descripcion }}</span>
-                    <em>{{ capitulo.origen }}</em>
+                <button class="timeline-heading timeline-toggle" type="button" (click)="alternarContenidoTratado()">
+                  <span>
+                    <i [class.open]="contenidoTratadoAbierto" aria-hidden="true"></i>
+                    Contenido tratado
+                  </span>
+                  <small>{{ capitulosClase.length }} bloques</small>
                   </button>
+
+                @if (contenidoTratadoAbierto) {
+                  <div class="chapter-list">
+                    @for (capitulo of capitulosClase; track $index) {
+                      <button class="chapter-item" type="button" (click)="saltarATiempo(capitulo.tiempo)">
+                        <span class="chapter-play" aria-hidden="true"></span>
+                        <span class="chapter-time">{{ formatearTiempo(capitulo.tiempo) }}</span>
+                        <span class="chapter-copy">
+                          <strong>{{ capitulo.titulo }}</strong>
+                          <span class="chapter-description">{{ capitulo.descripcion }}</span>
+                        </span>
+                        <em>{{ capitulo.origen }}</em>
+                      </button>
+                    }
+                  </div>
                 }
               </div>
             </section>
@@ -178,45 +333,44 @@
               <div class="status-message status-error">{{ error }}</div>
             }
 
-            <section class="metadata-row">
-              <label class="meta-field">
-                <span>Asignatura</span>
-                <select [(ngModel)]="asignaturaClase">
-                  @for (asignatura of asignaturasDisponibles; track asignatura) {
-                    <option [value]="asignatura">{{ asignatura }}</option>
-                  }
-                </select>
-              </label>
-
-              <label class="meta-field">
-                <span>Fecha</span>
-                <input type="date" [(ngModel)]="fechaClase" />
-              </label>
-            </section>
-
-            <section class="content-section">
-              <h2>Conceptos clave</h2>
-              <div class="concept-list">
-                @for (concepto of conceptosClave; track $index) {
-                  <article class="concept-row">
-                    <button class="timestamp" type="button" (click)="saltarATiempo(concepto.tiempo)">
-                      {{ formatearTiempo(concepto.tiempo) }}
-                    </button>
-                    <div class="concept-copy">
-                      <h3>{{ concepto.nombre }}</h3>
-                      <p>{{ concepto.definicion }}</p>
-                    </div>
-                    <button class="ask-link" type="button" (click)="preguntarConcepto(concepto)">
-                      Preguntar
-                    </button>
-                  </article>
-                }
-              </div>
-            </section>
-
             <section class="content-section summary-section">
               <h2>Resumen de la clase</h2>
               <p>{{ resumenClase }}</p>
+            </section>
+
+            <section class="content-section concepts-section">
+              <div class="concepts-heading">
+                <h2>Conceptos clave</h2>
+                <label class="concept-search">
+                  <span>Buscar</span>
+                  <input
+                    type="search"
+                    [(ngModel)]="busquedaConceptos"
+                    placeholder="Buscar concepto..."
+                  />
+                </label>
+              </div>
+
+              <div class="concept-grid">
+                @for (concepto of conceptosClaveFiltrados; track $index) {
+                  <article class="concept-card">
+                    <div class="concept-card-top">
+                      <button class="timestamp" type="button" (click)="saltarATiempo(concepto.tiempo)">
+                        {{ formatearTiempo(concepto.tiempo) }}
+                      </button>
+                      <button class="ask-link" type="button" (click)="preguntarConcepto(concepto)">
+                        Preguntar
+                      </button>
+                    </div>
+                    <h3>{{ concepto.nombre }}</h3>
+                    <p>{{ concepto.definicion }}</p>
+                  </article>
+                } @empty {
+                  <div class="concept-empty">
+                    No hay conceptos que coincidan con la busqueda.
+                  </div>
+                }
+              </div>
             </section>
 
             <section class="content-section">
@@ -226,10 +380,20 @@
               <div class="related-grid">
                 @for (clase of clasesRelacionadas; track clase.titulo) {
                   <article class="related-card">
-                    <div class="related-thumb"></div>
-                    <p>{{ clase.fecha }}</p>
-                    <h3>{{ clase.titulo }}</h3>
-                    <span>{{ clase.descripcion }}</span>
+                    <div class="related-thumb">
+                      <img
+                        [src]="obtenerThumbnailYoutube(clase.youtubeId)"
+                        [alt]="clase.titulo"
+                        (error)="usarThumbnailFallback($event, clase.youtubeId)"
+                      />
+                      <div class="related-overlay"></div>
+                      <span class="related-duration">{{ clase.duracion }}</span>
+                      <div class="related-content">
+                        <p>{{ clase.asignatura }}</p>
+                        <h3>{{ clase.titulo }}</h3>
+                        <span>{{ clase.descripcion }}</span>
+                      </div>
+                    </div>
                   </article>
                 }
               </div>
@@ -251,7 +415,7 @@
 
             <div class="chat-thread">
               @if (respuestaRag) {
-                <div class="message message-user">{{ pregunta }}</div>
+                <div class="message message-user">{{ preguntaEnviada }}</div>
                 <div class="message message-ai">
                   <p>{{ respuestaRag.respuesta }}</p>
                   <button class="source-toggle" type="button" (click)="fuentesExpandidas = !fuentesExpandidas">
@@ -288,7 +452,11 @@
               />
               <button type="button" (click)="buscarEnVideo()" [disabled]="cargandoBusqueda || !videoSeleccionado">
                 @if (cargandoBusqueda) {
-                  ...
+                  <span class="send-bubbles" aria-label="Procesando">
+                    <i></i>
+                    <i></i>
+                    <i></i>
+                  </span>
                 } @else {
                   Enviar
                 }
@@ -296,6 +464,7 @@
             </div>
           </aside>
         </section>
+        }
       </main>
     }
 
@@ -342,7 +511,7 @@
         } @else {
           <section class="history-list">
             @for (video of historial; track video.id) {
-              <button class="history-row" type="button" (click)="seleccionarVideo(video)">
+              <button class="history-row" type="button" (click)="abrirClase(video.id, video)">
                 <div>
                   <h2>{{ video.titulo }}</h2>
                   <p>{{ video.numeroFragmentos }} fragmentos · {{ video.fuenteTranscripcion }}</p>
