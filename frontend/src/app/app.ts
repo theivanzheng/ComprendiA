@@ -1032,11 +1032,17 @@ export class App implements OnInit, OnDestroy {
    */
   private extraerEntidad(texto: string | null | undefined): string | null {
     if (!texto) return null;
-    const palabras = texto.replace(/[.,;:¿?¡!()"]/g, ' ').split(/\s+/).filter((p) => p.length > 0);
+    // Los signos de fin de frase (. ! ? ; :) cortan: una entidad no cruza un punto.
+    const conCortes = texto.replace(/[.!?¡¿;:\n]+/g, ' | ').replace(/[,()"]/g, ' ');
+    const palabras = conCortes.split(/\s+/).filter((p) => p.length > 0);
     const tieneMayuscula = (p: string) => /[A-ZÁÉÍÓÚÑ]/.test(p);
     const esModelo = (p: string) => /^[0-9]+[a-zA-Z]*$/.test(p) || /^[a-z]*[A-Z]/.test(p);
     const esRelevante = (p: string) => tieneMayuscula(p) || esModelo(p);
-    const iniciales = new Set(['El', 'La', 'Los', 'Las', 'Un', 'Una', 'En', 'De', 'Y', 'O', 'Su', 'Este', 'Esta', 'Ese', 'Esa']);
+    // Palabras que, aun con mayúscula, NO son entidades (conectores, artículos, afirmaciones…).
+    const parada = new Set(['El', 'La', 'Los', 'Las', 'Un', 'Una', 'En', 'De', 'Del', 'Y', 'O', 'U',
+      'Su', 'Sus', 'Si', 'Sí', 'No', 'Este', 'Esta', 'Esto', 'Ese', 'Esa', 'Eso', 'Por', 'Para',
+      'Con', 'Que', 'Qué', 'Cuando', 'Cuándo', 'Donde', 'Dónde', 'Como', 'Cómo', 'A', 'Al', 'Se',
+      'Lo', 'Le', 'Me', 'Te', 'Pero', 'Más', 'Muy', 'Hay', 'Es', 'Son']);
 
     let mejor: string[] = [];
     let actual: string[] = [];
@@ -1047,11 +1053,10 @@ export class App implements OnInit, OnDestroy {
       actual = [];
     };
     for (const p of palabras) {
-      const limpia = actual.length === 0 && iniciales.has(p) ? null : p;
-      if (limpia && esRelevante(limpia)) {
-        actual.push(limpia);
-      } else {
+      if (p === '|' || parada.has(p) || !esRelevante(p)) {
         cerrar();
+      } else {
+        actual.push(p);
       }
     }
     cerrar();

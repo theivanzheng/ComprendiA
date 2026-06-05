@@ -78,7 +78,7 @@ public class ChatWebSocket {
                 preparacion.contexto(),
                 consulta.pregunta(),
                 consulta.historial(),
-                consulta.entidadReciente(),
+                preparacion.entidadEfectiva(),   // null salvo que la pregunta sea referencia implícita
                 token -> enviar(conexion, Map.of("tipo", "token", "contenido", token))
             );
 

@@ -115,9 +115,10 @@ public class RagServicio {
             return responderGlobal(video, pregunta);
         }
 
-        // Recuperación semántica contextual: si la pregunta es ambigua/corta, se enriquece la
-        // búsqueda con la entidad reciente para que "el móvil" recupere los fragmentos del referente.
-        String textoBusqueda = construirTextoBusqueda(pregunta, entidadReciente);
+        // Recuperación semántica contextual: la entidad reciente solo se usa si la pregunta es una
+        // referencia implícita; si trae sujeto propio nuevo, no se arrastra (evita contaminación).
+        String entidadEfectiva = entidadAplicable(pregunta, entidadReciente);
+        String textoBusqueda = entidadEfectiva == null ? pregunta : pregunta + " " + entidadEfectiva;
         List<Double> vectorPregunta = embeddingServicio.generarEmbedding(textoBusqueda);
         String embeddingStr = vectorPregunta.toString().replace(" ", "");
         List<ResultadoBusquedaDTO> fuentes = fragmentoRepositorio.buscarPorSimilitud(videoId, embeddingStr, NUM_FRAGMENTOS);
@@ -127,15 +128,15 @@ public class RagServicio {
         }
 
         String contexto = construirContexto(fuentes);
-        LOG.infof("[RAG] Conversacion. %d fragmentos, %d turnos previos, entidad='%s' para: %s",
-            fuentes.size(), historial.size(), entidadReciente, pregunta);
+        LOG.infof("[RAG] Conversacion. %d fragmentos, %d turnos previos, entidad aplicada='%s' para: %s",
+            fuentes.size(), historial.size(), entidadEfectiva, pregunta);
 
-        String respuesta = chatGptServicio.completarConversacion(contexto, pregunta, historial, entidadReciente);
+        String respuesta = chatGptServicio.completarConversacion(contexto, pregunta, historial, entidadEfectiva);
         return new RespuestaRagDTO(respuesta, fuentes);
     }
 
     /** Resultado de la recuperación: el contexto (extractos) y las fuentes (momentos del vídeo). */
-    public record PreparacionRag(String contexto, List<ResultadoBusquedaDTO> fuentes) {}
+    public record PreparacionRag(String contexto, List<ResultadoBusquedaDTO> fuentes, String entidadEfectiva) {}
 
     /**
      * Fase de RECUPERACIÓN del RAG, separada de la generación. Hace la búsqueda semántica y
@@ -148,31 +149,46 @@ public class RagServicio {
         if (video == null) {
             throw new NotFoundException("Vídeo con id " + videoId + " no encontrado");
         }
-        String textoBusqueda = construirTextoBusqueda(consulta.pregunta(), consulta.entidadReciente());
+        String entidadEfectiva = entidadAplicable(consulta.pregunta(), consulta.entidadReciente());
+        String textoBusqueda = entidadEfectiva == null
+            ? consulta.pregunta() : consulta.pregunta() + " " + entidadEfectiva;
         List<Double> vectorPregunta = embeddingServicio.generarEmbedding(textoBusqueda);
         String embeddingStr = vectorPregunta.toString().replace(" ", "");
         List<ResultadoBusquedaDTO> fuentes = fragmentoRepositorio.buscarPorSimilitud(videoId, embeddingStr, NUM_FRAGMENTOS);
         String contexto = fuentes.isEmpty() ? "" : construirContexto(fuentes);
-        LOG.infof("[RAG-WS] Recuperados %d fragmentos para: %s", fuentes.size(), consulta.pregunta());
-        return new PreparacionRag(contexto, fuentes);
+        LOG.infof("[RAG-WS] Recuperados %d fragmentos (entidad aplicada='%s') para: %s",
+            fuentes.size(), entidadEfectiva, consulta.pregunta());
+        return new PreparacionRag(contexto, fuentes, entidadEfectiva);
     }
 
     /**
      * Decide el texto que se usa para la búsqueda semántica. Si la pregunta es corta o parece una
      * referencia implícita (poco contenido propio), se le añade la entidad reciente.
      */
+    /**
+     * Decide si una pregunta es una REFERENCIA IMPLÍCITA al tema anterior (un pronombre o una
+     * pregunta muy corta sin sujeto propio: "¿y el móvil?", "¿cuánto costaba?", "¿y después?").
+     * Solo en ese caso tiene sentido arrastrar la entidad reciente. Si la pregunta introduce un
+     * sujeto nuevo ("¿de qué marcas de zapatillas habla?"), NO es implícita.
+     */
+    private boolean esReferenciaImplicita(String pregunta) {
+        String n = normalizar(pregunta).trim();
+        if (n.isEmpty()) return false;
+        int palabras = n.split("\\s+").length;
+        if (palabras <= 4) return true; // pregunta muy corta: casi seguro alude a lo anterior
+        return contiene(n, "ese ", "esa ", "eso", "este ", "esta ", "esos ", "esas ",
+            "el movil", "lo anterior", "lo mismo", "y despues", "y luego", "y antes");
+    }
+
+    /** Devuelve la entidad reciente SOLO si la pregunta es una referencia implícita; si no, null. */
+    private String entidadAplicable(String pregunta, String entidadReciente) {
+        if (entidadReciente == null || entidadReciente.isBlank()) return null;
+        return esReferenciaImplicita(pregunta) ? entidadReciente : null;
+    }
+
     private String construirTextoBusqueda(String pregunta, String entidadReciente) {
-        if (entidadReciente == null || entidadReciente.isBlank()) {
-            return pregunta;
-        }
-        String normalizada = normalizar(pregunta);
-        // Heurística: preguntas cortas o con pronombres/alusiones ("el móvil", "ese", "eso",
-        // "y después", "cuánto costaba") se benefician de anclar la búsqueda a la entidad reciente.
-        boolean esAmbigua = normalizada.split("\\s+").length <= 6
-            || contiene(normalizada, "ese ", "esa ", "eso", "este ", "esta ", "esos ", "esas ",
-                "el movil", "lo anterior", "y despues", "y luego", "antes", "tambien",
-                "cuanto", "cuando", "donde", "lo mismo", "y que");
-        return esAmbigua ? pregunta + " " + entidadReciente : pregunta;
+        String entidad = entidadAplicable(pregunta, entidadReciente);
+        return entidad == null ? pregunta : pregunta + " " + entidad;
     }
 
     private RespuestaRagDTO responderGlobal(Video video, String pregunta) {
