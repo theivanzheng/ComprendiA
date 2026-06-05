@@ -1,7 +1,9 @@
+# Configuración local de herramientas
 .claude/settings.local.json
+*.local.json
+
+# Secretos / variables de entorno (NUNCA subir)
 .env
 .env.*
-*.local.json
-.env
-.env.*
-*.local.json
+# ...pero sí versionamos la plantilla de ejemplo
+!.env.example

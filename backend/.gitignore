@@ -3,3 +3,5 @@ target/
 *.class
 .env
 .env.*
+# Sí versionamos la plantilla de ejemplo (sin secretos)
+!.env.example
