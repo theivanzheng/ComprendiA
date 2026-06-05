@@ -39,6 +39,10 @@ public class RespuestaTranscripcionDTO {
         return fragmentos;
     }
 
+    public void setFragmentos(List<FragmentoTranscripcionDTO> fragmentos) {
+        this.fragmentos = fragmentos;
+    }
+
     public String getFuenteTranscripcion() {
         return fuenteTranscripcion;
     }

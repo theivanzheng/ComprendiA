@@ -45,6 +45,9 @@ public class TranscripcionYoutubeServicio {
     ClasificacionAsignaturaServicio clasificacionAsignaturaServicio;
 
     @Inject
+    ReagrupadorFragmentosServicio reagrupadorFragmentos;
+
+    @Inject
     @ConfigProperty(name = "comprendia.transcripcion.modo", defaultValue = "simulada")
     String modoTranscripcion;
 
@@ -95,6 +98,9 @@ public class TranscripcionYoutubeServicio {
                 System.currentTimeMillis() - inicioFase, respuesta.getFragmentos().size());
             // [Diagnóstico] Cobertura temporal de la transcripción
             registrarDiagnosticoTranscripcion(respuesta);
+
+            // Reagrupar fragmentos pequeños en ventanas mayores (mejora la búsqueda semántica).
+            respuesta.setFragmentos(reagrupadorFragmentos.reagrupar(respuesta.getFragmentos()));
 
             verificarCancelacion(cancelado);
 
