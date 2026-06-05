@@ -7,5 +7,7 @@ public record VideoMetadataDTO(
     String profesor,
     LocalDate fechaClase,
     Boolean completado,
-    Long idAsignatura
+    Long idAsignatura,
+    Long idProfesor,
+    String resumen
 ) {}

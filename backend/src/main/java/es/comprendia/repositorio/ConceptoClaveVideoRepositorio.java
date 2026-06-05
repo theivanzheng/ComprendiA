@@ -15,9 +15,10 @@ public class ConceptoClaveVideoRepositorio implements PanacheRepository<Concepto
     public List<ConceptoClaveVideoDTO> buscarPorVideoOrdenado(Long idVideo) {
         return getEntityManager()
             .createQuery(
-                "SELECT new es.comprendia.dto.ConceptoClaveVideoDTO(c.nombre, c.definicion, " +
-                    "c.tiempoInicio, c.ordenConcepto) " +
-                    "FROM ConceptoClaveVideo c WHERE c.video.id = :id ORDER BY c.ordenConcepto",
+                "SELECT new es.comprendia.dto.ConceptoClaveVideoDTO(c.id, c.nombre, c.definicion, " +
+                    "c.tiempoInicio, c.tiempoFin, c.ordenConcepto, c.creadoManual, c.generadoPorIa) " +
+                    "FROM ConceptoClaveVideo c WHERE c.video.id = :id " +
+                    "ORDER BY c.tiempoInicio ASC, c.ordenConcepto ASC, c.id ASC",
                 ConceptoClaveVideoDTO.class)
             .setParameter("id", idVideo)
             .getResultList();
@@ -34,7 +35,11 @@ public class ConceptoClaveVideoRepositorio implements PanacheRepository<Concepto
             concepto.nombre = dto.nombre();
             concepto.definicion = dto.definicion();
             concepto.tiempoInicio = dto.tiempoInicio();
+            concepto.tiempoFin = dto.tiempoFin();
             concepto.ordenConcepto = dto.orden();
+            boolean manual = Boolean.TRUE.equals(dto.creadoManual());
+            concepto.creadoManual = manual;
+            concepto.generadoPorIa = dto.generadoPorIa() != null ? dto.generadoPorIa() : !manual;
             persist(concepto);
         }
     }

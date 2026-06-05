@@ -11,6 +11,7 @@ import { RespuestaRag } from './modelos/respuesta-rag';
 import { Asignatura } from './modelos/asignatura';
 import { AsignaturaDetalle } from './modelos/asignatura-detalle';
 import { ResultadoBusquedaAsignatura } from './modelos/resultado-busqueda-asignatura';
+import { ConceptoCurso } from './modelos/concepto-curso';
 import { CapituloVideo } from './modelos/capitulo-video';
 import { ConceptoClaveVideo } from './modelos/concepto-clave-video';
 
@@ -37,6 +38,7 @@ type OrigenClase =
   | { tipo: 'asignatura'; idAsignatura: number };
 
 interface CapituloClase {
+  id?: number | null;
   titulo: string;
   descripcion: string;
   tiempo: number;
@@ -45,9 +47,22 @@ interface CapituloClase {
 }
 
 interface ConceptoClave {
+  id?: number | null;
   nombre: string;
   definicion: string;
   tiempo: number;
+}
+
+// Resultados de búsqueda semántica agrupados por clase/vídeo
+interface GrupoBusquedaClase {
+  idClase: number;
+  tituloClase: string;
+  youtubeId: string;
+  coincidencias: number;
+  mejorSimilitud: number;
+  duracion: string | null;
+  fecha: string | null;
+  fragmentos: ResultadoBusquedaAsignatura[];
 }
 
 interface CursoVista {
@@ -131,6 +146,14 @@ export class App implements OnInit, OnDestroy {
   protected guardandoAsignatura = false;
   protected errorGuardarAsignatura = '';
 
+  // Modal editar asignatura
+  protected modalEditarAsignatura = false;
+  protected editarAsignaturaNombre = '';
+  protected editarAsignaturaDescripcion = '';
+  protected editarAsignaturaProfesor = '';
+  protected guardandoEditarAsignatura = false;
+  protected errorEditarAsignatura = '';
+
   // Modal eliminar asignatura
   protected modalEliminarAsignatura = false;
   protected eliminarAsignaturaConfirmacion = '';
@@ -142,6 +165,34 @@ export class App implements OnInit, OnDestroy {
   protected resultadosBusquedaAsignatura: ResultadoBusquedaAsignatura[] = [];
   protected cargandoBusquedaAsignatura = false;
   protected errorBusquedaAsignatura = '';
+  // Acordeón: idClase del grupo de resultados expandido (null = todos contraídos)
+  protected grupoBusquedaExpandido: number | null = null;
+
+  // ── Conceptos del curso (sección de detalle de asignatura) ───────────────
+  protected conceptosCurso: ConceptoCurso[] = [];
+  protected cargandoConceptosCurso = false;
+  protected filtroConceptosCurso = '';
+  // Ver más / ver menos: por defecto contraído a dos filas (no se persiste)
+  protected conceptosCursoExpandido = false;
+  protected conceptosCursoDesborda = false;
+
+  // Modal de estudio de un concepto + nota personal global
+  protected modalConceptoCurso = false;
+  protected conceptoCursoActivo: ConceptoCurso | null = null;
+  protected notaConcepto = '';
+  protected cargandoNotaConcepto = false;
+  protected guardandoNotaConcepto = false;
+  protected notaConceptoGuardada = false;
+  protected errorNotaConcepto = '';
+
+  // Edición / eliminación del concepto (dentro del modal)
+  protected editandoConcepto = false;
+  protected editarConceptoNombre = '';
+  protected editarConceptoDefinicion = '';
+  protected guardandoEdicionConcepto = false;
+  protected errorEdicionConcepto = '';
+  protected confirmandoEliminarConcepto = false;
+  protected eliminandoConcepto = false;
 
   // Menú contextual de asignatura (tres puntos)
   protected menuAsignaturaAbierto = false;
@@ -173,13 +224,41 @@ export class App implements OnInit, OnDestroy {
   // URL del iframe de YouTube ya sanitizada. Es un CAMPO (no getter) para no regenerar
   // un objeto nuevo en cada ciclo de detección de cambios, lo que recargaba el iframe.
   protected urlEmbedClase: SafeResourceUrl | null = null;
-  // Se incrementa en cada cambio de URL para forzar el remount del iframe (@for track)
-  protected reproductorKey = 0;
+  // Controla el montaje del iframe. Se pone false→true para forzar un remount LIMPIO
+  // (Angular gestiona el nodo) en vez de @for, que chocaba con la IFrame API (NG0956).
+  protected mostrarIframe = false;
+  // Id del elemento iframe para que la YouTube IFrame API pueda engancharse a él
+  protected readonly idIframeClase = 'comprendia-class-player';
+  // Referencia al reproductor de la IFrame API (para leer el tiempo y hacer seek)
+  private youtubePlayer: any = null;
+  private playerListo = false;
+  // Segundo en el que abrir la clase (p.ej. al venir de "Ir al momento" de un concepto)
+  private tiempoInicialPendiente: number | null = null;
   protected selectorMetadatoAbierto: SelectorMetadato = null;
   protected busquedaAsignatura = '';
   protected busquedaProfesor = '';
   protected busquedaConceptos = '';
   protected contenidoTratadoAbierto = true;
+
+  // ── Modales de capítulo/concepto manual ──────────────────────────────────
+  protected modalCapitulo = false;
+  protected capituloEditandoId: number | null = null;
+  // Los tiempos se editan en formato mm:ss (texto); se convierten a segundos al enviar
+  protected formCapitulo = { titulo: '', descripcion: '', tiempoInicio: '', tiempoFin: '' };
+  protected guardandoCapitulo = false;
+  protected errorCapitulo = '';
+
+  protected modalConcepto = false;
+  protected conceptoEditandoId: number | null = null;
+  protected formConcepto = { nombre: '', definicion: '', tiempoInicio: '', tiempoFin: '' };
+  protected guardandoConcepto = false;
+  protected errorConcepto = '';
+
+  // Menú discreto abierto en un capítulo/concepto concreto (ej. 'cap-12', 'con-5')
+  protected menuItemAbierto: string | null = null;
+
+  // Segundo detectado del reproductor al abrir un modal (para el aviso "Timestamp detectado")
+  protected tiempoDetectado = 0;
 
   // Nombres para el selector (derivados de asignaturasObjetos + fallback inicial)
   protected asignaturasDisponibles: string[] = ['Sin asignatura'];
@@ -243,7 +322,17 @@ export class App implements OnInit, OnDestroy {
   ];
 
   private readonly ORDEN_FASES: FaseTrabajo[] = [
-    'DESCARGANDO', 'TRANSCRIBIENDO', 'GUARDANDO', 'EMBEDDINGS'
+    'DESCARGANDO', 'TRANSCRIBIENDO', 'GUARDANDO', 'EMBEDDINGS', 'ANALIZANDO'
+  ];
+
+  // Timeline horizontal de progreso real del análisis (porcentaje según fase del backend)
+  readonly FASES_TIMELINE: { fase: FaseTrabajo; label: string; texto: string; pct: number }[] = [
+    { fase: 'DESCARGANDO',    label: 'Descarga',      texto: 'Descargando audio del vídeo…',        pct: 15 },
+    { fase: 'TRANSCRIBIENDO', label: 'Transcripción', texto: 'Transcribiendo con Whisper…',          pct: 40 },
+    { fase: 'GUARDANDO',      label: 'Guardado',      texto: 'Guardando la transcripción…',          pct: 60 },
+    { fase: 'EMBEDDINGS',     label: 'Embeddings',    texto: 'Generando vectores semánticos…',       pct: 80 },
+    { fase: 'ANALIZANDO',     label: 'Análisis',      texto: 'Generando capítulos y conceptos…',     pct: 95 },
+    { fase: 'COMPLETADO',     label: 'Completado',    texto: 'Análisis completado',                  pct: 100 },
   ];
 
   constructor(
@@ -280,6 +369,10 @@ export class App implements OnInit, OnDestroy {
       this.menuAsignaturaAbierto = false;
       this.cd.detectChanges();
     }
+    if (this.menuItemAbierto !== null) {
+      this.menuItemAbierto = null;
+      this.cd.detectChanges();
+    }
   }
 
   @HostListener('window:popstate')
@@ -308,11 +401,16 @@ export class App implements OnInit, OnDestroy {
     this.conceptos = [];
     this.resultadosBusqueda = [];
     this.respuestaRag = null;
+    this.fuentesExpandidas = false;
     this.pregunta = '';
     this.preguntaEnviada = '';
     this.errorBusqueda = '';
     this.tiempoInicioReproductor = 0;
     this.faseActual = null;
+    // Montar YA el iframe real del vídeo nuevo (id extraído de la URL) para que sea
+    // reproducible durante el procesamiento. Nunca hereda el iframe/thumbnail anterior.
+    this.tiempoInicialPendiente = null;
+    this.actualizarUrlEmbed(false);
     this.iniciarTemporizador();
 
     this.transcripcionServicio.iniciarProcesamiento({ urlVideo: this.urlVideo }).subscribe({
@@ -353,16 +451,14 @@ export class App implements OnInit, OnDestroy {
     );
   }
 
-  // Reconstruye la URL del iframe. Se llama SOLO al cargar la clase o al saltar a un
-  // capítulo, no en cada detección de cambios. Genera una URL nueva (string distinto)
-  // para que el navegador recargue el iframe en el segundo indicado.
+  // (Re)construye la URL del iframe y recrea el elemento. Se usa al cargar una clase
+  // (vídeo nuevo) y como fallback de salto si la IFrame API aún no está lista.
+  // Tras recrear el iframe, engancha la YouTube IFrame API para poder leer el tiempo.
   private actualizarUrlEmbed(autoplay: boolean): void {
     const youtubeId = this.youtubeIdClase;
-    console.log('[Reproductor] youtubeId', youtubeId);
 
     if (!youtubeId) {
       this.urlEmbedClase = null;
-      console.warn('[Reproductor] Sin youtubeId — no se puede construir el iframe');
       return;
     }
 
@@ -371,18 +467,32 @@ export class App implements OnInit, OnDestroy {
       start: String(inicio),
       enablejsapi: '1',
       rel: '0',
-      modestbranding: '1'
+      modestbranding: '1',
+      origin: window.location.origin
     });
     if (autoplay) {
       parametros.set('autoplay', '1');
     }
 
     const urlPlana = `https://www.youtube.com/embed/${youtubeId}?${parametros.toString()}`;
-    console.log('[Reproductor] embedUrl', urlPlana);
-    // Cambiar la key fuerza a Angular a recrear el <iframe> en vez de reutilizarlo,
-    // garantizando que el navegador recargue el vídeo en el nuevo segundo.
-    this.reproductorKey++;
     this.urlEmbedClase = this.sanitizer.bypassSecurityTrustResourceUrl(urlPlana);
+    // Remount limpio del iframe gestionado por Angular (no @for) + reenganche del player.
+    this.remontarIframe();
+  }
+
+  // Fuerza la recreación del <iframe> de forma estable: lo oculta, suelta el player
+  // anterior (sin destroy(), que quitaría el nodo a Angular) y lo vuelve a montar.
+  private remontarIframe(): void {
+    this.mostrarIframe = false;
+    this.youtubePlayer = null;
+    this.playerListo = false;
+    this.cd.detectChanges();
+    setTimeout(() => {
+      this.mostrarIframe = true;
+      this.cd.detectChanges();
+      // Una vez el iframe nuevo está en el DOM, engancha la IFrame API
+      setTimeout(() => this.inicializarPlayer(), 300);
+    }, 0);
   }
 
   get youtubeIdClase(): string | null {
@@ -392,7 +502,8 @@ export class App implements OnInit, OnDestroy {
   }
 
   get thumbnailClase(): string {
-    return this.obtenerThumbnailYoutube(this.youtubeIdClase);
+    // hqdefault siempre existe (maxresdefault da 404 en algunos vídeos)
+    return this.obtenerThumbnailYoutube(this.youtubeIdClase, 'hqdefault');
   }
 
   // URL pública para abrir el vídeo en YouTube (fallback si el embed está bloqueado)
@@ -458,94 +569,68 @@ export class App implements OnInit, OnDestroy {
     return this.PASOS.find(paso => paso.fase === this.faseActual)?.label ?? this.faseActual;
   }
 
+  // ── Timeline de progreso del análisis ────────────────────────────────────
+
+  get indiceFaseActual(): number {
+    if (!this.faseActual) return -1;
+    return this.FASES_TIMELINE.findIndex(f => f.fase === this.faseActual);
+  }
+
+  // Porcentaje real basado en la fase del backend (5% mientras "prepara")
+  get progresoAnalisis(): number {
+    const actual = this.FASES_TIMELINE.find(f => f.fase === this.faseActual);
+    return actual ? actual.pct : 5;
+  }
+
+  // Texto descriptivo de la fase actual (o el error si lo hay)
+  get faseActualTexto(): string {
+    if (this.error) return this.error;
+    const actual = this.FASES_TIMELINE.find(f => f.fase === this.faseActual);
+    return actual ? actual.texto : 'Preparando análisis…';
+  }
+
+  fasePasada(indice: number): boolean {
+    return this.indiceFaseActual > indice;
+  }
+
+  faseEsActual(indice: number): boolean {
+    return this.indiceFaseActual === indice;
+  }
+
+  // Solo capítulos REALES persistidos del vídeo actual. Nunca datos falsos: si no hay
+  // análisis todavía (vídeo en procesamiento), devuelve [] y la UI muestra skeleton.
   get capitulosClase(): CapituloClase[] {
-    const fragmentos = this.fragmentosClase;
-    if (this.capitulos.length > 0) {
-      return this.capitulos.map(capitulo => ({
+    if (this.capitulos.length === 0) return [];
+    return this.capitulos
+      .map(capitulo => ({
+        id: capitulo.id ?? null,
         titulo: capitulo.titulo,
         descripcion: capitulo.descripcion,
         tiempo: capitulo.tiempoInicio,
         tiempoFin: capitulo.tiempoFin,
         origen: capitulo.origen
-      }));
-    }
-
-    if (fragmentos.length === 0) {
-      return [
-        {
-          titulo: 'Inicio de la clase',
-          descripcion: 'Primer bloque detectado cuando el analisis este disponible.',
-          tiempo: 0,
-          tiempoFin: 0,
-          origen: 'Manual'
-        },
-        {
-          titulo: 'Bloque principal',
-          descripcion: 'Desarrollo central de la sesion.',
-          tiempo: 600,
-          tiempoFin: 1200,
-          origen: 'IA'
-        },
-        {
-          titulo: 'Cierre y conclusiones',
-          descripcion: 'Resultado final de la clase.',
-          tiempo: 1800,
-          tiempoFin: 2100,
-          origen: 'IA'
-        }
-      ];
-    }
-
-    const automaticos = fragmentos.slice(0, 5).map((fragmento, index) => ({
-      titulo: this.crearTituloCorto(fragmento.texto, index + 1),
-      descripcion: this.recortarTexto(fragmento.texto, 140),
-      tiempo: fragmento.tiempoInicio,
-      tiempoFin: fragmento.tiempoFin,
-      origen: 'AUTO'
-    }));
-
-    return [
-      {
-        titulo: 'Inicio marcado',
-        descripcion: 'Punto de entrada manual al video.',
-        tiempo: 0,
-        tiempoFin: 0,
-        origen: 'Manual'
-      },
-      ...automaticos
-    ];
+      }))
+      // Orden defensivo por tiempo ascendente (el backend ya ordena, esto blinda la UI)
+      .sort((a, b) => (a.tiempo ?? 0) - (b.tiempo ?? 0));
   }
 
+  // Solo conceptos REALES persistidos del vídeo actual.
   get conceptosClave(): ConceptoClave[] {
-    if (this.conceptos.length > 0) {
-      return this.conceptos.map(concepto => ({
+    if (this.conceptos.length === 0) return [];
+    return this.conceptos
+      .map(concepto => ({
+        id: concepto.id ?? null,
         nombre: concepto.nombre,
         definicion: concepto.definicion,
         tiempo: concepto.tiempoInicio
-      }));
-    }
+      }))
+      // Orden defensivo por tiempo ascendente
+      .sort((a, b) => (a.tiempo ?? 0) - (b.tiempo ?? 0));
+  }
 
-    const fragmentos = this.fragmentosClase;
-    if (fragmentos.length === 0) {
-      return [
-        {
-          nombre: 'Concepto principal',
-          definicion: 'Idea central detectada cuando finalice el analisis.',
-          tiempo: 0
-        },
-        {
-          nombre: 'Resultado de la clase',
-          definicion: 'Conclusion o aprendizaje final que se extraera del video.',
-          tiempo: 0
-        }
-      ];
-    }
-
-    return fragmentos.slice(0, 6).map((fragmento, index) => ({
-      nombre: this.crearTituloCorto(fragmento.texto, index + 1),
-      definicion: this.recortarTexto(fragmento.texto, 135),
-      tiempo: fragmento.tiempoInicio
-    }));
+  // True cuando ya existe análisis real (capítulos o conceptos del vídeo actual)
+  get analisisDisponible(): boolean {
+    return this.capitulos.length > 0 || this.conceptos.length > 0;
   }
 
   get conceptosClaveFiltrados(): ConceptoClave[] {
@@ -559,11 +644,12 @@ export class App implements OnInit, OnDestroy {
 
   get resumenClase(): string {
     const fragmentos = this.fragmentosClase;
-    const capitulos = this.capitulosClase.filter(capitulo => capitulo.titulo && capitulo.titulo !== 'Inicio marcado');
+    const capitulos = this.capitulosClase;
     const conceptos = this.conceptosClave;
 
+    // Sin datos reales todavía: vacío (la UI muestra skeleton), nunca texto provisional falso
     if (fragmentos.length === 0 && capitulos.length === 0 && conceptos.length === 0) {
-      return 'El resumen se generara cuando termine el analisis. Mostrara como arranca la clase, que trabajo se desarrolla y con que resultado termina.';
+      return '';
     }
 
     const tema = this.obtenerTemaResumen(capitulos, conceptos, fragmentos);
@@ -655,8 +741,10 @@ export class App implements OnInit, OnDestroy {
     if (actualizarUrl) {
       this.actualizarRuta('#/clase/' + video.id);
     }
-    // Cargar el reproductor desde el inicio, listo para reproducir (con botón play)
-    this.tiempoInicioReproductor = 0;
+    // Cargar el reproductor. Si se venía con un segundo pendiente ("Ir al momento"),
+    // posicionar el vídeo ahí; si no, desde el inicio.
+    this.tiempoInicioReproductor = this.tiempoInicialPendiente ?? 0;
+    this.tiempoInicialPendiente = null;
     this.actualizarUrlEmbed(false);
 
     if (!cargarDetalles) {
@@ -770,6 +858,23 @@ export class App implements OnInit, OnDestroy {
       return `${horas}:${minutos.toString().padStart(2, '0')}:${segundosRestantes.toString().padStart(2, '0')}`;
     }
     return `${minutos}:${segundosRestantes.toString().padStart(2, '0')}`;
+  }
+
+  // Convierte un texto mm:ss (o hh:mm:ss, o ss) a segundos. Devuelve null si es inválido.
+  // Acepta: "4:26", "04:26", "0:30", "1:02:15", "30".
+  private parsearTiempoMMSS(texto: string): number | null {
+    const limpio = (texto ?? '').trim();
+    if (!limpio) return null;
+    if (!/^\d{1,2}(:\d{1,2}){0,2}$/.test(limpio)) return null;
+
+    const partes = limpio.split(':').map(p => parseInt(p, 10));
+    if (partes.some(n => Number.isNaN(n))) return null;
+
+    // Cuando hay separadores, los segundos (y minutos si hay horas) deben ser 0-59
+    if (partes.length >= 2 && partes[partes.length - 1] > 59) return null;
+    if (partes.length === 3 && partes[1] > 59) return null;
+
+    return partes.reduce((acumulado, parte) => acumulado * 60 + parte, 0);
   }
 
   duracionEstimadaVideo(video: VideoResumen): string {
@@ -889,14 +994,236 @@ export class App implements OnInit, OnDestroy {
     this.contenidoTratadoAbierto = !this.contenidoTratadoAbierto;
   }
 
+  // ── Capítulos manuales ───────────────────────────────────────────────────
+
   abrirAnadirCapitulo(evento?: Event): void {
     evento?.preventDefault();
     evento?.stopPropagation();
+    if (!this.videoSeleccionado) return;
+    this.capituloEditandoId = null;
+    this.errorCapitulo = '';
+    // Timestamp real del reproductor (segundo actual de reproducción)
+    this.tiempoDetectado = this.obtenerTiempoActualVideo();
+    this.formCapitulo = {
+      titulo: '',
+      descripcion: '',
+      tiempoInicio: this.formatearDuracion(this.tiempoDetectado),
+      tiempoFin: ''
+    };
+    this.modalCapitulo = true;
   }
+
+  abrirEditarCapitulo(capitulo: CapituloClase, evento: Event): void {
+    evento.stopPropagation();
+    if (capitulo.id == null) return;
+    this.menuItemAbierto = null;
+    this.capituloEditandoId = capitulo.id;
+    this.errorCapitulo = '';
+    this.formCapitulo = {
+      titulo: capitulo.titulo,
+      descripcion: capitulo.descripcion,
+      tiempoInicio: this.formatearDuracion(Math.max(0, Math.floor(capitulo.tiempo))),
+      tiempoFin: capitulo.tiempoFin ? this.formatearDuracion(Math.floor(capitulo.tiempoFin)) : ''
+    };
+    this.modalCapitulo = true;
+  }
+
+  cerrarModalCapitulo(): void {
+    this.modalCapitulo = false;
+    this.guardandoCapitulo = false;
+    this.errorCapitulo = '';
+  }
+
+  guardarCapitulo(): void {
+    if (!this.videoSeleccionado) return;
+    if (!this.formCapitulo.titulo.trim()) {
+      this.errorCapitulo = 'El título es obligatorio.';
+      return;
+    }
+    const tiempoInicio = this.parsearTiempoMMSS(this.formCapitulo.tiempoInicio);
+    if (tiempoInicio == null) {
+      this.errorCapitulo = 'El tiempo de inicio no es válido. Usa el formato mm:ss (por ejemplo 4:26).';
+      return;
+    }
+    let tiempoFin: number | undefined;
+    if (this.formCapitulo.tiempoFin.trim()) {
+      const fin = this.parsearTiempoMMSS(this.formCapitulo.tiempoFin);
+      if (fin == null) {
+        this.errorCapitulo = 'El tiempo de fin no es válido. Usa el formato mm:ss o déjalo vacío.';
+        return;
+      }
+      tiempoFin = fin;
+    }
+
+    this.guardandoCapitulo = true;
+    this.errorCapitulo = '';
+
+    const solicitud = {
+      titulo: this.formCapitulo.titulo.trim(),
+      descripcion: this.formCapitulo.descripcion.trim() || undefined,
+      tiempoInicio,
+      tiempoFin
+    };
+    const idVideo = this.videoSeleccionado.id;
+
+    const peticion = this.capituloEditandoId != null
+      ? this.transcripcionServicio.actualizarCapitulo(this.capituloEditandoId, solicitud)
+      : this.transcripcionServicio.crearCapitulo(idVideo, solicitud);
+
+    peticion.subscribe({
+      next: () => {
+        this.cerrarModalCapitulo();
+        this.refrescarCapitulos(idVideo);
+      },
+      error: (err) => {
+        this.errorCapitulo = err.error?.error ?? 'No se pudo guardar el capítulo.';
+        this.guardandoCapitulo = false;
+        this.cd.markForCheck();
+      }
+    });
+  }
+
+  eliminarCapitulo(capitulo: CapituloClase, evento: Event): void {
+    evento.stopPropagation();
+    if (capitulo.id == null || !this.videoSeleccionado) return;
+    this.menuItemAbierto = null;
+    const idVideo = this.videoSeleccionado.id;
+    this.transcripcionServicio.eliminarCapitulo(capitulo.id).subscribe({
+      next: () => this.refrescarCapitulos(idVideo),
+      error: () => this.cd.markForCheck()
+    });
+  }
+
+  // ── Conceptos manuales ───────────────────────────────────────────────────
 
   abrirAnadirConcepto(evento?: Event): void {
     evento?.preventDefault();
     evento?.stopPropagation();
+    if (!this.videoSeleccionado) return;
+    this.conceptoEditandoId = null;
+    this.errorConcepto = '';
+    this.tiempoDetectado = this.obtenerTiempoActualVideo();
+    this.formConcepto = {
+      nombre: '',
+      definicion: '',
+      tiempoInicio: this.formatearDuracion(this.tiempoDetectado),
+      tiempoFin: ''
+    };
+    this.modalConcepto = true;
+  }
+
+  abrirEditarConcepto(concepto: ConceptoClave, evento: Event): void {
+    evento.stopPropagation();
+    if (concepto.id == null) return;
+    this.menuItemAbierto = null;
+    this.conceptoEditandoId = concepto.id;
+    this.errorConcepto = '';
+    this.formConcepto = {
+      nombre: concepto.nombre,
+      definicion: concepto.definicion,
+      tiempoInicio: this.formatearDuracion(Math.max(0, Math.floor(concepto.tiempo))),
+      tiempoFin: ''
+    };
+    this.modalConcepto = true;
+  }
+
+  cerrarModalConcepto(): void {
+    this.modalConcepto = false;
+    this.guardandoConcepto = false;
+    this.errorConcepto = '';
+  }
+
+  guardarConcepto(): void {
+    if (!this.videoSeleccionado) return;
+    if (!this.formConcepto.nombre.trim()) {
+      this.errorConcepto = 'El nombre es obligatorio.';
+      return;
+    }
+    const tiempoInicio = this.parsearTiempoMMSS(this.formConcepto.tiempoInicio);
+    if (tiempoInicio == null) {
+      this.errorConcepto = 'El tiempo de inicio no es válido. Usa el formato mm:ss (por ejemplo 4:26).';
+      return;
+    }
+    let tiempoFin: number | undefined;
+    if (this.formConcepto.tiempoFin.trim()) {
+      const fin = this.parsearTiempoMMSS(this.formConcepto.tiempoFin);
+      if (fin == null) {
+        this.errorConcepto = 'El tiempo de fin no es válido. Usa el formato mm:ss o déjalo vacío.';
+        return;
+      }
+      tiempoFin = fin;
+    }
+
+    this.guardandoConcepto = true;
+    this.errorConcepto = '';
+
+    const solicitud = {
+      nombre: this.formConcepto.nombre.trim(),
+      definicion: this.formConcepto.definicion.trim() || undefined,
+      tiempoInicio,
+      tiempoFin
+    };
+    const idVideo = this.videoSeleccionado.id;
+
+    const peticion = this.conceptoEditandoId != null
+      ? this.transcripcionServicio.actualizarConcepto(this.conceptoEditandoId, solicitud)
+      : this.transcripcionServicio.crearConcepto(idVideo, solicitud);
+
+    peticion.subscribe({
+      next: () => {
+        this.cerrarModalConcepto();
+        this.refrescarConceptos(idVideo);
+      },
+      error: (err) => {
+        this.errorConcepto = err.error?.error ?? 'No se pudo guardar el concepto.';
+        this.guardandoConcepto = false;
+        this.cd.markForCheck();
+      }
+    });
+  }
+
+  eliminarConcepto(concepto: ConceptoClave, evento: Event): void {
+    evento.stopPropagation();
+    if (concepto.id == null || !this.videoSeleccionado) return;
+    this.menuItemAbierto = null;
+    const idVideo = this.videoSeleccionado.id;
+    this.transcripcionServicio.eliminarConcepto(concepto.id).subscribe({
+      next: () => this.refrescarConceptos(idVideo),
+      error: () => this.cd.markForCheck()
+    });
+  }
+
+  // ── Menú discreto por ítem ───────────────────────────────────────────────
+
+  alternarMenuItem(clave: string, evento: Event): void {
+    evento.stopPropagation();
+    this.menuItemAbierto = this.menuItemAbierto === clave ? null : clave;
+  }
+
+  // ── Refresco tras crear/editar/borrar (sin recargar la página) ───────────
+
+  private refrescarCapitulos(idVideo: number): void {
+    this.transcripcionServicio.obtenerCapitulos(idVideo).subscribe({
+      next: (capitulos) => {
+        if (this.videoSeleccionado?.id !== idVideo) return;
+        this.capitulos = capitulos;
+        this.guardarDetallesEnCache(idVideo, { capitulos });
+        this.cd.detectChanges();
+      },
+      error: () => this.cd.markForCheck()
+    });
+  }
+
+  private refrescarConceptos(idVideo: number): void {
+    this.transcripcionServicio.obtenerConceptos(idVideo).subscribe({
+      next: (conceptos) => {
+        if (this.videoSeleccionado?.id !== idVideo) return;
+        this.conceptos = conceptos;
+        this.guardarDetallesEnCache(idVideo, { conceptos });
+        this.cd.detectChanges();
+      },
+      error: () => this.cd.markForCheck()
+    });
   }
 
   formatearSimilitud(similitud: number): string {
@@ -904,7 +1231,9 @@ export class App implements OnInit, OnDestroy {
   }
 
   obtenerThumbnailYoutube(youtubeId: string | null | undefined, calidad = 'maxresdefault'): string {
-    const id = youtubeId?.trim() || this.youtubeIdClase || 'Xphb-tzJj24';
+    // Sin id no se inventa un vídeo por defecto (antes caía en uno de prueba antiguo)
+    const id = youtubeId?.trim() || this.youtubeIdClase;
+    if (!id) return '';
     return `https://img.youtube.com/vi/${id}/${calidad}.jpg`;
   }
 
@@ -982,7 +1311,15 @@ export class App implements OnInit, OnDestroy {
     this.errorBusquedaAsignatura = '';
     this.errorAsignatura = '';
     this.menuAsignaturaAbierto = false;
+    // Reiniciar la sección de conceptos del curso
+    this.filtroConceptosCurso = '';
+    this.conceptosCursoExpandido = false;
+    this.conceptosCursoDesborda = false;
+    this.modalConceptoCurso = false;
+    this.conceptoCursoActivo = null;
     this.actualizarRuta('#/cursos/' + id);
+    // Carga independiente: si falla, no bloquea el resto del detalle
+    this.cargarConceptosCurso(id);
 
     const detalleCacheado = this.cacheDetalleAsignatura.get(id);
 
@@ -1074,6 +1411,72 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
+  // ── Editar asignatura ────────────────────────────────────────────────────
+
+  abrirModalEditarAsignatura(): void {
+    if (!this.asignaturaDetalle) return;
+    this.editarAsignaturaNombre = this.asignaturaDetalle.nombre ?? '';
+    this.editarAsignaturaDescripcion = this.asignaturaDetalle.descripcion ?? '';
+    this.editarAsignaturaProfesor = (this.asignaturaDetalle.profesor && this.asignaturaDetalle.profesor !== 'Profesor pendiente')
+      ? this.asignaturaDetalle.profesor : '';
+    this.errorEditarAsignatura = '';
+    this.modalEditarAsignatura = true;
+  }
+
+  cerrarModalEditarAsignatura(): void {
+    this.modalEditarAsignatura = false;
+    this.guardandoEditarAsignatura = false;
+    this.errorEditarAsignatura = '';
+  }
+
+  guardarEditarAsignatura(): void {
+    if (!this.asignaturaDetalle) return;
+    if (!this.editarAsignaturaNombre.trim()) {
+      this.errorEditarAsignatura = 'El nombre es obligatorio.';
+      return;
+    }
+    this.guardandoEditarAsignatura = true;
+    this.errorEditarAsignatura = '';
+
+    const id = this.asignaturaDetalle.id;
+    const solicitud: SolicitudAsignatura = {
+      nombre: this.editarAsignaturaNombre.trim(),
+      descripcion: this.editarAsignaturaDescripcion.trim(),
+      profesor: this.editarAsignaturaProfesor.trim()
+    };
+
+    this.transcripcionServicio.actualizarAsignatura(id, solicitud).subscribe({
+      next: (actualizada) => {
+        // Actualizar la vista sin recargar
+        if (this.asignaturaDetalle?.id === id) {
+          this.asignaturaDetalle = {
+            ...this.asignaturaDetalle,
+            nombre: actualizada.nombre,
+            descripcion: actualizada.descripcion,
+            profesor: actualizada.profesor
+          };
+          this.cacheDetalleAsignatura.set(id, this.asignaturaDetalle);
+        }
+        // Reflejar también en la lista de Mis Cursos y su caché
+        this.asignaturas = this.asignaturas.map(a => a.id === id
+          ? { ...a, nombre: actualizada.nombre, descripcion: actualizada.descripcion, profesor: actualizada.profesor }
+          : a);
+        if (this.cacheListaAsignaturas) {
+          this.cacheListaAsignaturas = this.cacheListaAsignaturas.map(a => a.id === id
+            ? { ...a, nombre: actualizada.nombre, descripcion: actualizada.descripcion, profesor: actualizada.profesor }
+            : a);
+        }
+        this.cerrarModalEditarAsignatura();
+        this.cd.markForCheck();
+      },
+      error: (err) => {
+        this.errorEditarAsignatura = err.error?.error ?? 'No se pudo guardar la asignatura.';
+        this.guardandoEditarAsignatura = false;
+        this.cd.markForCheck();
+      }
+    });
+  }
+
   abrirModalEliminarAsignatura(): void {
     this.eliminarAsignaturaConfirmacion = '';
     this.errorEliminarAsignatura = '';
@@ -1126,6 +1529,7 @@ export class App implements OnInit, OnDestroy {
     this.cargandoBusquedaAsignatura = true;
     this.errorBusquedaAsignatura = '';
     this.resultadosBusquedaAsignatura = [];
+    this.grupoBusquedaExpandido = null;
 
     this.transcripcionServicio.buscarEnAsignatura(
       this.asignaturaDetalle.id,
@@ -1142,6 +1546,308 @@ export class App implements OnInit, OnDestroy {
         this.cd.detectChanges();
       }
     });
+  }
+
+  // Agrupa los resultados planos de búsqueda por clase/vídeo (una card por clase)
+  get resultadosBusquedaAgrupados(): GrupoBusquedaClase[] {
+    const mapa = new Map<number, GrupoBusquedaClase>();
+
+    for (const r of this.resultadosBusquedaAsignatura) {
+      let grupo = mapa.get(r.idClase);
+      if (!grupo) {
+        const clase = this.asignaturaDetalle?.clases.find(c => c.id === r.idClase);
+        grupo = {
+          idClase: r.idClase,
+          tituloClase: r.tituloClase,
+          youtubeId: r.youtubeId,
+          coincidencias: 0,
+          mejorSimilitud: 0,
+          duracion: clase ? this.duracionEstimadaVideo(clase) : null,
+          fecha: clase?.fechaCreacion ? this.formatearFechaClase(clase.fechaCreacion) : null,
+          fragmentos: []
+        };
+        mapa.set(r.idClase, grupo);
+      }
+      grupo.fragmentos.push(r);
+      grupo.coincidencias++;
+      if (r.similitud > grupo.mejorSimilitud) grupo.mejorSimilitud = r.similitud;
+    }
+
+    const grupos = [...mapa.values()];
+    // Fragmentos de cada clase en orden cronológico; clases por mejor similitud desc
+    grupos.forEach(g => g.fragmentos.sort((a, b) => a.tiempoInicio - b.tiempoInicio));
+    grupos.sort((a, b) => b.mejorSimilitud - a.mejorSimilitud);
+    return grupos;
+  }
+
+  alternarGrupoBusqueda(idClase: number): void {
+    this.grupoBusquedaExpandido = this.grupoBusquedaExpandido === idClase ? null : idClase;
+  }
+
+  // ── Conceptos del curso ──────────────────────────────────────────────────
+
+  private cargarConceptosCurso(id: number): void {
+    this.cargandoConceptosCurso = true;
+    this.conceptosCurso = [];
+    this.transcripcionServicio.obtenerConceptosCurso(id).subscribe({
+      next: (conceptos) => {
+        if (this.asignaturaDetalle?.id !== id && this.vistaActual === 'cursos-detalle') {
+          // La respuesta llegó pero ya se está viendo otra asignatura
+        }
+        this.conceptosCurso = conceptos;
+        this.cargandoConceptosCurso = false;
+        this.cd.markForCheck();
+        this.medirDesbordamientoConceptos();
+      },
+      error: () => {
+        // No bloquear el resto del detalle si esta sección falla
+        this.conceptosCurso = [];
+        this.cargandoConceptosCurso = false;
+        this.cd.markForCheck();
+      }
+    });
+  }
+
+  get conceptosCursoFiltrados(): ConceptoCurso[] {
+    const termino = this.filtroConceptosCurso.trim().toLowerCase();
+    if (!termino) return this.conceptosCurso;
+    return this.conceptosCurso.filter(c => c.nombre.toLowerCase().includes(termino));
+  }
+
+  // Alterna ver más / ver menos de los chips de conceptos
+  alternarConceptosCurso(): void {
+    this.conceptosCursoExpandido = !this.conceptosCursoExpandido;
+  }
+
+  // Se llama al filtrar para recalcular si los chips desbordan dos filas
+  alFiltrarConceptosCurso(): void {
+    this.medirDesbordamientoConceptos();
+  }
+
+  // Mide si el contenedor de chips (en estado contraído) desborda las dos filas
+  @HostListener('window:resize')
+  medirDesbordamientoConceptos(): void {
+    // Esperar al render del DOM antes de medir
+    setTimeout(() => {
+      const contenedor = document.querySelector('.conceptos-curso-chips') as HTMLElement | null;
+      if (!contenedor) {
+        this.conceptosCursoDesborda = false;
+        return;
+      }
+      // En estado contraído el contenedor recorta con max-height; si el contenido real
+      // es mayor que el visible, hay desbordamiento → mostrar "Ver más".
+      const desborda = contenedor.scrollHeight > contenedor.clientHeight + 4;
+      if (desborda !== this.conceptosCursoDesborda) {
+        this.conceptosCursoDesborda = desborda;
+        this.cd.markForCheck();
+      }
+    }, 60);
+  }
+
+  conceptoCursoEsManual(concepto: ConceptoCurso): boolean {
+    return concepto.clases.some(c => c.creadoManual === true);
+  }
+
+  conceptoCursoEsIa(concepto: ConceptoCurso): boolean {
+    return concepto.clases.some(c => c.generadoPorIa === true);
+  }
+
+  // Primera definición no vacía de las apariciones del concepto activo
+  get definicionConceptoActivo(): string {
+    if (!this.conceptoCursoActivo) return '';
+    const def = this.conceptoCursoActivo.clases.find(c => c.definicion?.trim())?.definicion;
+    return def?.trim() ?? '';
+  }
+
+  // ── Modal de estudio del concepto + nota global ──────────────────────────
+
+  abrirConceptoCurso(concepto: ConceptoCurso): void {
+    if (!this.asignaturaDetalle) return;
+    this.conceptoCursoActivo = concepto;
+    this.notaConcepto = '';
+    this.errorNotaConcepto = '';
+    this.notaConceptoGuardada = false;
+    this.resetearEdicionConcepto();
+    this.modalConceptoCurso = true;
+    this.cargarNotaConcepto();
+  }
+
+  cerrarModalConceptoCurso(): void {
+    this.modalConceptoCurso = false;
+    this.conceptoCursoActivo = null;
+    this.guardandoNotaConcepto = false;
+    this.cargandoNotaConcepto = false;
+    this.errorNotaConcepto = '';
+    this.notaConceptoGuardada = false;
+    this.resetearEdicionConcepto();
+  }
+
+  private resetearEdicionConcepto(): void {
+    this.editandoConcepto = false;
+    this.editarConceptoNombre = '';
+    this.editarConceptoDefinicion = '';
+    this.guardandoEdicionConcepto = false;
+    this.errorEdicionConcepto = '';
+    this.confirmandoEliminarConcepto = false;
+    this.eliminandoConcepto = false;
+  }
+
+  private cargarNotaConcepto(): void {
+    if (!this.asignaturaDetalle || !this.conceptoCursoActivo) return;
+    const idAsignatura = this.asignaturaDetalle.id;
+    const nombre = this.conceptoCursoActivo.nombre;
+    this.cargandoNotaConcepto = true;
+    this.transcripcionServicio.obtenerNotaConcepto(idAsignatura, nombre).subscribe({
+      next: (resultado) => {
+        // Ignorar si el usuario ya cambió de concepto
+        if (this.conceptoCursoActivo?.nombre !== nombre) return;
+        this.notaConcepto = resultado.nota ?? '';
+        this.cargandoNotaConcepto = false;
+        this.cd.markForCheck();
+      },
+      error: () => {
+        this.notaConcepto = '';
+        this.cargandoNotaConcepto = false;
+        this.cd.markForCheck();
+      }
+    });
+  }
+
+  guardarNotaConcepto(): void {
+    if (!this.asignaturaDetalle || !this.conceptoCursoActivo) return;
+    const idAsignatura = this.asignaturaDetalle.id;
+    const nombre = this.conceptoCursoActivo.nombre;
+    this.guardandoNotaConcepto = true;
+    this.errorNotaConcepto = '';
+    this.notaConceptoGuardada = false;
+
+    this.transcripcionServicio.guardarNotaConcepto(idAsignatura, nombre, this.notaConcepto).subscribe({
+      next: () => {
+        this.guardandoNotaConcepto = false;
+        this.notaConceptoGuardada = true;
+        this.cd.markForCheck();
+        // Ocultar el aviso "guardada" tras un instante
+        setTimeout(() => { this.notaConceptoGuardada = false; this.cd.markForCheck(); }, 2000);
+      },
+      error: (err) => {
+        this.errorNotaConcepto = err.error?.error ?? 'No se pudo guardar la nota.';
+        this.guardandoNotaConcepto = false;
+        this.cd.markForCheck();
+      }
+    });
+  }
+
+  // ── Editar / eliminar concepto (afecta a toda la asignatura) ─────────────
+
+  iniciarEdicionConcepto(): void {
+    if (!this.conceptoCursoActivo) return;
+    this.editandoConcepto = true;
+    this.errorEdicionConcepto = '';
+    this.confirmandoEliminarConcepto = false;
+    this.editarConceptoNombre = this.conceptoCursoActivo.nombre;
+    this.editarConceptoDefinicion = this.definicionConceptoActivo;
+  }
+
+  cancelarEdicionConcepto(): void {
+    this.editandoConcepto = false;
+    this.errorEdicionConcepto = '';
+  }
+
+  guardarEdicionConcepto(): void {
+    if (!this.asignaturaDetalle || !this.conceptoCursoActivo) return;
+    if (!this.editarConceptoNombre.trim()) {
+      this.errorEdicionConcepto = 'El nombre es obligatorio.';
+      return;
+    }
+    const idAsignatura = this.asignaturaDetalle.id;
+    const nombreOriginal = this.conceptoCursoActivo.nombre;
+    const nuevoNombre = this.editarConceptoNombre.trim();
+    const definicion = this.editarConceptoDefinicion.trim();
+    this.guardandoEdicionConcepto = true;
+    this.errorEdicionConcepto = '';
+
+    this.transcripcionServicio.editarConceptoCurso(idAsignatura, nombreOriginal, nuevoNombre, definicion).subscribe({
+      next: () => {
+        this.guardandoEdicionConcepto = false;
+        this.editandoConcepto = false;
+        // Refrescar chips y reapuntar el concepto activo al nombre nuevo
+        this.cargarConceptosCursoYReapuntar(idAsignatura, nuevoNombre);
+      },
+      error: (err) => {
+        this.errorEdicionConcepto = err.error?.error ?? 'No se pudo editar el concepto.';
+        this.guardandoEdicionConcepto = false;
+        this.cd.markForCheck();
+      }
+    });
+  }
+
+  iniciarEliminarConcepto(): void {
+    this.confirmandoEliminarConcepto = true;
+    this.editandoConcepto = false;
+  }
+
+  cancelarEliminarConcepto(): void {
+    this.confirmandoEliminarConcepto = false;
+  }
+
+  confirmarEliminarConcepto(): void {
+    if (!this.asignaturaDetalle || !this.conceptoCursoActivo) return;
+    const idAsignatura = this.asignaturaDetalle.id;
+    const nombre = this.conceptoCursoActivo.nombre;
+    this.eliminandoConcepto = true;
+
+    this.transcripcionServicio.eliminarConceptoCurso(idAsignatura, nombre).subscribe({
+      next: () => {
+        this.eliminandoConcepto = false;
+        this.cerrarModalConceptoCurso();
+        // Recargar la lista y, si es la asignatura abierta, sus clases (las apariciones cambiaron)
+        this.cargarConceptosCurso(idAsignatura);
+        this.refrescarDetalleAsignatura(idAsignatura);
+      },
+      error: () => {
+        this.eliminandoConcepto = false;
+        this.confirmandoEliminarConcepto = false;
+        this.cd.markForCheck();
+      }
+    });
+  }
+
+  // Tras editar, recarga los conceptos y vuelve a apuntar el concepto activo al nuevo nombre
+  private cargarConceptosCursoYReapuntar(idAsignatura: number, nuevoNombre: string): void {
+    this.transcripcionServicio.obtenerConceptosCurso(idAsignatura).subscribe({
+      next: (conceptos) => {
+        this.conceptosCurso = conceptos;
+        const reapuntado = conceptos.find(c => c.nombre.toLowerCase() === nuevoNombre.toLowerCase());
+        if (reapuntado && this.modalConceptoCurso) {
+          this.conceptoCursoActivo = reapuntado;
+        } else {
+          // Si no se encuentra (no debería pasar), cerrar el modal
+          this.cerrarModalConceptoCurso();
+        }
+        this.cd.markForCheck();
+        this.medirDesbordamientoConceptos();
+        // Las clases de la asignatura también reflejan el cambio de nombre
+        this.refrescarDetalleAsignatura(idAsignatura);
+      },
+      error: () => this.cd.markForCheck()
+    });
+  }
+
+  // Cierra el modal de concepto con la tecla ESC
+  @HostListener('document:keydown.escape')
+  cerrarConEscape(): void {
+    if (this.modalConceptoCurso) {
+      this.cerrarModalConceptoCurso();
+    }
+  }
+
+  // Abre la clase donde aparece el concepto y la posiciona en el momento exacto
+  irAlMomentoConcepto(aparicion: { idClase: number; tiempoInicio: number }): void {
+    const origen = this.asignaturaDetalle?.id;
+    // Cerrar el modal antes de navegar a la clase
+    this.modalConceptoCurso = false;
+    this.conceptoCursoActivo = null;
+    this.abrirClase(aparicion.idClase, undefined, origen, Math.max(0, Math.floor(aparicion.tiempoInicio)));
   }
 
   get profesorEfectivoAsignatura(): string {
@@ -1250,10 +1956,13 @@ export class App implements OnInit, OnDestroy {
     this.actualizarRuta('#/historial');
   }
 
-  abrirClase(idVideo: number, preview?: VideoResumen, origenAsignatura?: number): void {
+  abrirClase(idVideo: number, preview?: VideoResumen, origenAsignatura?: number, tiempoInicial?: number): void {
     if (!Number.isFinite(idVideo)) return;
     // Capturar el origen ANTES de cambiar de vista (this.vistaActual aún es la de partida)
     this.origenClase = this.calcularOrigenClase(origenAsignatura);
+    // Si se pide abrir en un segundo concreto (p.ej. "Ir al momento" de un concepto)
+    this.tiempoInicialPendiente = (tiempoInicial != null && tiempoInicial > 0)
+      ? Math.floor(tiempoInicial) : null;
     this.actualizarRuta('#/clase/' + idVideo);
     this.cargarClaseDesdeRuta(idVideo, true, preview);
   }
@@ -1335,10 +2044,23 @@ export class App implements OnInit, OnDestroy {
   }
 
   saltarATiempo(segundos: number): void {
-    // Segundos enteros y no negativos
-    this.tiempoInicioReproductor = Math.max(0, Math.floor(segundos));
-    // Reconstruir la URL con start={segundos} y autoplay para que el iframe recargue
-    // y se posicione en ese punto. El cambio de URL (string distinto) fuerza la recarga.
+    const objetivo = Math.max(0, Math.floor(segundos));
+    this.tiempoInicioReproductor = objetivo;
+
+    // Si la IFrame API está lista, usar seekTo (no recrea el iframe → más fluido y
+    // mantiene viva la referencia del player para leer el tiempo).
+    if (this.playerListo && this.youtubePlayer?.seekTo) {
+      try {
+        this.youtubePlayer.seekTo(objetivo, true);
+        this.youtubePlayer.playVideo?.();
+        this.cd.markForCheck();
+        return;
+      } catch {
+        // Si falla, caer al método de recarga de iframe
+      }
+    }
+
+    // Fallback: reconstruir la URL con start={segundos}&autoplay para recargar el iframe.
     this.actualizarUrlEmbed(true);
     this.cd.markForCheck();
   }
@@ -1346,6 +2068,20 @@ export class App implements OnInit, OnDestroy {
   // Salta al inicio de un capítulo (atajo semántico solicitado)
   irACapitulo(capitulo: CapituloClase): void {
     this.saltarATiempo(capitulo.tiempo);
+  }
+
+  // Devuelve el segundo actual de reproducción. Si el player no está listo,
+  // usa el último segundo al que se saltó como aproximación, o 0.
+  obtenerTiempoActualVideo(): number {
+    if (this.playerListo && this.youtubePlayer?.getCurrentTime) {
+      try {
+        const t = this.youtubePlayer.getCurrentTime();
+        if (Number.isFinite(t) && t >= 0) return Math.floor(t);
+      } catch {
+        // ignorar y usar fallback
+      }
+    }
+    return Math.max(0, Math.floor(this.tiempoInicioReproductor)) || 0;
   }
 
   private iniciarPolling(idTrabajo: string): void {
@@ -1546,7 +2282,64 @@ export class App implements OnInit, OnDestroy {
   // Limpia el reproductor (al salir de la clase o iniciar un nuevo procesamiento)
   private limpiarReproductor(): void {
     this.urlEmbedClase = null;
+    this.mostrarIframe = false;
     this.tiempoInicioReproductor = 0;
+    this.destruirPlayer();
+  }
+
+  // ── YouTube IFrame API (lectura de tiempo + seek) ────────────────────────
+
+  private inicializarPlayer(): void {
+    if (!this.youtubeIdClase || !this.mostrarIframe) return;
+    this.cargarApiYoutube(() => {
+      const elemento = document.getElementById(this.idIframeClase);
+      if (!elemento || !window.YT?.Player) return;
+      // Soltar la referencia anterior sin destroy() (Angular ya gestiona el nodo)
+      this.youtubePlayer = null;
+      this.playerListo = false;
+      try {
+        this.youtubePlayer = new window.YT.Player(this.idIframeClase, {
+          events: {
+            onReady: () => { this.playerListo = true; },
+            onStateChange: (evento: { data: number }) => {
+              if (evento.data === window.YT?.PlayerState?.ENDED && this.videoSeleccionado) {
+                this.marcarClaseCompletada(true);
+              }
+            }
+          }
+        });
+      } catch {
+        this.youtubePlayer = null;
+        this.playerListo = false;
+      }
+    });
+  }
+
+  // Carga el script de la IFrame API una sola vez y ejecuta el callback cuando está listo.
+  private cargarApiYoutube(callback: () => void): void {
+    if (window.YT?.Player) {
+      callback();
+      return;
+    }
+    const callbackPrevio = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      callbackPrevio?.();
+      callback();
+    };
+    if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
+      const script = document.createElement('script');
+      script.src = 'https://www.youtube.com/iframe_api';
+      script.async = true;
+      document.head.appendChild(script);
+    }
+  }
+
+  // Suelta la referencia al player SIN llamar a destroy(): destroy() elimina el <iframe>
+  // del DOM y choca con el control de Angular (NotFoundError en insertBefore). Angular
+  // retira el nodo mediante @if (mostrarIframe / urlEmbedClase).
+  private destruirPlayer(): void {
+    this.playerListo = false;
+    this.youtubePlayer = null;
   }
 
   private marcarClaseCompletada(completado: boolean): void {

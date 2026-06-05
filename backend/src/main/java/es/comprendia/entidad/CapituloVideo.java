@@ -31,6 +31,13 @@ public class CapituloVideo extends PanacheEntity {
     @Column(name = "orden_capitulo")
     public Integer ordenCapitulo;
 
+    // Origen textual histórico: "IA", "AUTO" o "MANUAL"
     @Column(nullable = false)
     public String origen;
+
+    @Column(name = "creado_manual")
+    public Boolean creadoManual = false;
+
+    @Column(name = "generado_por_ia")
+    public Boolean generadoPorIa = false;
 }

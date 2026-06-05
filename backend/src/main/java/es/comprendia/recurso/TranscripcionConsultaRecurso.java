@@ -3,13 +3,17 @@ package es.comprendia.recurso;
 import es.comprendia.dto.FragmentoDTO;
 import es.comprendia.dto.RespuestaRagDTO;
 import es.comprendia.dto.ResultadoBusquedaDTO;
+import es.comprendia.dto.SolicitudCapituloDTO;
+import es.comprendia.dto.SolicitudConceptoDTO;
 import es.comprendia.dto.VideoMetadataDTO;
 import es.comprendia.dto.VideoResumenDTO;
 import es.comprendia.repositorio.AsignaturaRepositorio;
 import es.comprendia.repositorio.CapituloVideoRepositorio;
 import es.comprendia.repositorio.ConceptoClaveVideoRepositorio;
+import es.comprendia.repositorio.ProfesorRepositorio;
 import es.comprendia.repositorio.VideoRepositorio;
 import es.comprendia.servicio.BusquedaSemanticaServicio;
+import es.comprendia.servicio.CapituloConceptoServicio;
 import es.comprendia.servicio.FragmentoConsultaServicio;
 import es.comprendia.servicio.RagServicio;
 import es.comprendia.servicio.VideoConsultaServicio;
@@ -20,7 +24,9 @@ import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.PATCH;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
@@ -58,10 +64,16 @@ public class TranscripcionConsultaRecurso {
     AsignaturaRepositorio asignaturaRepositorio;
 
     @Inject
+    ProfesorRepositorio profesorRepositorio;
+
+    @Inject
     CapituloVideoRepositorio capituloVideoRepositorio;
 
     @Inject
     ConceptoClaveVideoRepositorio conceptoClaveVideoRepositorio;
+
+    @Inject
+    CapituloConceptoServicio capituloConceptoServicio;
 
     @GET
     public List<VideoResumenDTO> obtenerTranscripciones(
@@ -99,6 +111,21 @@ public class TranscripcionConsultaRecurso {
         return Response.ok(capituloVideoRepositorio.buscarPorVideoOrdenado(id)).build();
     }
 
+    @POST
+    @Path("/{id}/capitulos")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Transactional
+    public Response crearCapitulo(@PathParam("id") Long id, SolicitudCapituloDTO solicitud) {
+        try {
+            return Response.status(Response.Status.CREATED)
+                .entity(capituloConceptoServicio.crearCapitulo(id, solicitud)).build();
+        } catch (NotFoundException e) {
+            return Response.status(Response.Status.NOT_FOUND).entity(Map.of("error", e.getMessage())).build();
+        } catch (IllegalArgumentException e) {
+            return Response.status(Response.Status.BAD_REQUEST).entity(Map.of("error", e.getMessage())).build();
+        }
+    }
+
     @GET
     @Path("/{id}/conceptos")
     public Response obtenerConceptos(@PathParam("id") Long id) {
@@ -108,6 +135,21 @@ public class TranscripcionConsultaRecurso {
                 .build();
         }
         return Response.ok(conceptoClaveVideoRepositorio.buscarPorVideoOrdenado(id)).build();
+    }
+
+    @POST
+    @Path("/{id}/conceptos")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Transactional
+    public Response crearConcepto(@PathParam("id") Long id, SolicitudConceptoDTO solicitud) {
+        try {
+            return Response.status(Response.Status.CREATED)
+                .entity(capituloConceptoServicio.crearConcepto(id, solicitud)).build();
+        } catch (NotFoundException e) {
+            return Response.status(Response.Status.NOT_FOUND).entity(Map.of("error", e.getMessage())).build();
+        } catch (IllegalArgumentException e) {
+            return Response.status(Response.Status.BAD_REQUEST).entity(Map.of("error", e.getMessage())).build();
+        }
     }
 
     @DELETE
@@ -175,6 +217,10 @@ public class TranscripcionConsultaRecurso {
             video.completado = metadata.completado();
         }
 
+        if (metadata.resumen() != null) {
+            video.resumen = metadata.resumen().isBlank() ? null : metadata.resumen().strip();
+        }
+
         if (metadata.idAsignatura() != null) {
             es.comprendia.entidad.Asignatura asignatura = asignaturaRepositorio.findById(metadata.idAsignatura());
             if (asignatura == null) {
@@ -185,6 +231,17 @@ public class TranscripcionConsultaRecurso {
             video.asignaturaObj = asignatura;
             video.asignatura = asignatura.nombre;
             asignatura.fechaActualizacion = java.time.LocalDateTime.now();
+        }
+
+        if (metadata.idProfesor() != null) {
+            es.comprendia.entidad.Profesor profesor = profesorRepositorio.findById(metadata.idProfesor());
+            if (profesor == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                    .entity(Map.of("error", "Profesor no encontrado"))
+                    .build();
+            }
+            video.profesorObj = profesor;
+            video.profesor = profesor.nombre;
         }
 
         return Response.ok(videoConsultaServicio.obtenerVideo(id)).build();

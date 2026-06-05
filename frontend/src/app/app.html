@@ -289,9 +289,11 @@
                 class="player-frame"
                 [style.background-image]="'url(' + thumbnailClase + ')'">
                 @if (urlEmbedClase) {
-                  <!-- @for con track reproductorKey recrea el iframe al cambiar de segundo -->
-                  @for (key of [reproductorKey]; track key) {
+                  <!-- Render estable con @if (mostrarIframe): Angular crea/retira el iframe
+                       limpiamente. El remount se hace con false→true, no con @for. -->
+                  @if (mostrarIframe) {
                     <iframe
+                      [id]="idIframeClase"
                       [src]="urlEmbedClase"
                       frameborder="0"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -339,34 +341,96 @@
                     <i [class.open]="contenidoTratadoAbierto" aria-hidden="true"></i>
                     Contenido tratado
                   </span>
-                  <small>{{ capitulosClase.length }} bloques</small>
+                  <small>{{ cargando ? 'Procesando…' : capitulosClase.length + ' bloques' }}</small>
                   </button>
 
                 @if (contenidoTratadoAbierto) {
+                  @if (capitulosClase.length === 0) {
+                    <!-- Sin capítulos reales: skeleton durante el análisis, nunca contenido falso -->
+                    <p class="contenido-skeleton-msg">
+                      @if (cargando) { Los capítulos aparecerán cuando termine el análisis. }
+                      @else { No hay capítulos para esta clase. }
+                    </p>
+                    @if (cargando) {
+                      <div class="chapter-list">
+                        @for (n of [1,2,3,4]; track n) {
+                          <div class="chapter-skeleton-row">
+                            <span class="chapter-skeleton-time skel-shimmer"></span>
+                            <span class="chapter-skeleton-copy">
+                              <span class="chapter-skeleton-titulo skel-shimmer"></span>
+                              <span class="chapter-skeleton-desc skel-shimmer"></span>
+                            </span>
+                          </div>
+                        }
+                      </div>
+                    }
+                  } @else {
                   <div class="chapter-list">
                     @for (capitulo of capitulosClase; track $index) {
-                      <button class="chapter-item" type="button" (click)="saltarATiempo(capitulo.tiempo)">
-                        <span class="chapter-play" aria-hidden="true"></span>
-                        <span class="chapter-time">{{ formatearTiempo(capitulo.tiempo) }}</span>
-                        <span class="chapter-copy">
-                          <strong>{{ capitulo.titulo }}</strong>
-                          <span class="chapter-description">{{ capitulo.descripcion }}</span>
-                        </span>
-                        <em>{{ capitulo.origen }}</em>
-                      </button>
+                      <div class="chapter-item-wrap">
+                        <button class="chapter-item" type="button" (click)="saltarATiempo(capitulo.tiempo)">
+                          <span class="chapter-play" aria-hidden="true"></span>
+                          <span class="chapter-time">{{ formatearTiempo(capitulo.tiempo) }}</span>
+                          <span class="chapter-copy">
+                            <strong>{{ capitulo.titulo }}</strong>
+                            <span class="chapter-description">{{ capitulo.descripcion }}</span>
+                          </span>
+                          <em>{{ capitulo.origen }}</em>
+                        </button>
+
+                        @if (capitulo.id != null) {
+                          <div class="item-menu-wrap" (click)="$event.stopPropagation()">
+                            <button class="item-menu-btn" type="button" aria-label="Opciones del capítulo"
+                              (click)="alternarMenuItem('cap-' + capitulo.id, $event)">
+                              <span></span><span></span><span></span>
+                            </button>
+                            @if (menuItemAbierto === 'cap-' + capitulo.id) {
+                              <div class="menu-contextual item-menu-dropdown">
+                                <button class="menu-btn" type="button" (click)="abrirEditarCapitulo(capitulo, $event)">Editar</button>
+                                <button class="menu-btn menu-btn-eliminar" type="button" (click)="eliminarCapitulo(capitulo, $event)">Eliminar</button>
+                              </div>
+                            }
+                          </div>
+                        }
+                      </div>
                     }
                   </div>
+                  }
                 }
               </div>
             </section>
 
-            @if (cargando) {
-              <div class="processing-strip">
-                <div>
-                  <span class="processing-dot"></span>
-                  Analizando clase: {{ faseActualLabel }}
+            @if (cargando || error) {
+              <div class="analisis-timeline" [class.con-error]="!!error">
+                <div class="analisis-timeline-cabecera">
+                  <div class="analisis-timeline-estado">
+                    @if (!error) { <span class="processing-dot"></span> }
+                    <span class="analisis-timeline-texto">{{ faseActualTexto }}</span>
+                  </div>
+                  <div class="analisis-timeline-derecha">
+                    @if (!error) { <span class="analisis-timeline-pct">{{ progresoAnalisis }}%</span> }
+                    @if (cargando) {
+                      <button class="cancel-inline" type="button" (click)="cancelarAnalisis()">Cancelar</button>
+                    }
+                  </div>
                 </div>
-                <button class="cancel-inline" type="button" (click)="cancelarAnalisis()">Cancelar</button>
+
+                <!-- Barra de progreso real -->
+                <div class="analisis-barra">
+                  <div class="analisis-barra-fill" [style.width.%]="error ? 100 : progresoAnalisis"></div>
+                </div>
+
+                <!-- Nodos de las fases -->
+                <div class="analisis-nodos">
+                  @for (paso of FASES_TIMELINE; track paso.fase; let i = $index) {
+                    <div class="analisis-nodo"
+                      [class.pasada]="!error && fasePasada(i)"
+                      [class.actual]="!error && faseEsActual(i)">
+                      <span class="analisis-nodo-punto"></span>
+                      <span class="analisis-nodo-label">{{ paso.label }}</span>
+                    </div>
+                  }
+                </div>
               </div>
             }
 
@@ -380,7 +444,17 @@
 
             <section class="content-section summary-section">
               <h2>Resumen de la clase</h2>
-              <p>{{ resumenClase }}</p>
+              @if (resumenClase) {
+                <p>{{ resumenClase }}</p>
+              } @else if (cargando) {
+                <div class="resumen-skeleton">
+                  <span class="skel-line skel-shimmer"></span>
+                  <span class="skel-line skel-shimmer"></span>
+                  <span class="skel-line corta skel-shimmer"></span>
+                </div>
+              } @else {
+                <p class="contenido-skeleton-msg">El resumen se generará cuando termine el análisis.</p>
+              }
             </section>
 
             <section class="content-section concepts-section">
@@ -397,15 +471,41 @@
               </div>
 
               <div class="concept-grid">
+                @if (conceptosClave.length === 0 && cargando) {
+                  <!-- Skeleton de conceptos mientras se analiza -->
+                  @for (n of [1,2,3]; track n) {
+                    <article class="concept-card concept-card-skeleton">
+                      <span class="skel-line corta skel-shimmer"></span>
+                      <span class="skel-line skel-shimmer"></span>
+                      <span class="skel-line skel-shimmer"></span>
+                    </article>
+                  }
+                } @else {
                 @for (concepto of conceptosClaveFiltrados; track $index) {
                   <article class="concept-card">
                     <div class="concept-card-top">
                       <button class="timestamp" type="button" (click)="saltarATiempo(concepto.tiempo)">
                         {{ formatearTiempo(concepto.tiempo) }}
                       </button>
-                      <button class="ask-link" type="button" (click)="preguntarConcepto(concepto)">
-                        Preguntar
-                      </button>
+                      <div class="concept-card-acciones">
+                        <button class="ask-link" type="button" (click)="preguntarConcepto(concepto)">
+                          Preguntar
+                        </button>
+                        @if (concepto.id != null) {
+                          <div class="item-menu-wrap" (click)="$event.stopPropagation()">
+                            <button class="item-menu-btn" type="button" aria-label="Opciones del concepto"
+                              (click)="alternarMenuItem('con-' + concepto.id, $event)">
+                              <span></span><span></span><span></span>
+                            </button>
+                            @if (menuItemAbierto === 'con-' + concepto.id) {
+                              <div class="menu-contextual item-menu-dropdown">
+                                <button class="menu-btn" type="button" (click)="abrirEditarConcepto(concepto, $event)">Editar</button>
+                                <button class="menu-btn menu-btn-eliminar" type="button" (click)="eliminarConcepto(concepto, $event)">Eliminar</button>
+                              </div>
+                            }
+                          </div>
+                        }
+                      </div>
                     </div>
                     <h3>{{ concepto.nombre }}</h3>
                     <p>{{ concepto.definicion }}</p>
@@ -414,6 +514,7 @@
                   <div class="concept-empty">
                     No hay conceptos que coincidan con la busqueda.
                   </div>
+                }
                 }
               </div>
             </section>
@@ -463,17 +564,17 @@
                 <div class="message message-user">{{ preguntaEnviada }}</div>
                 <div class="message message-ai">
                   <p>{{ respuestaRag.respuesta }}</p>
-                  <button class="source-toggle" type="button" (click)="fuentesExpandidas = !fuentesExpandidas">
-                    {{ respuestaRag.fuentes.length }} fuentes usadas
-                  </button>
 
-                  @if (fuentesExpandidas) {
-                    <div class="source-list">
-                      @for (fuente of respuestaRag.fuentes; track $index) {
-                        <button type="button" (click)="saltarATiempo(fuente.tiempoInicio)">
-                          {{ formatearTiempo(fuente.tiempoInicio) }} - {{ formatearTiempo(fuente.tiempoFin) }}
-                        </button>
-                      }
+                  @if (respuestaRag.fuentes.length > 0) {
+                    <div class="momentos-relacionados">
+                      <span class="momentos-label">Momentos relacionados</span>
+                      <div class="momentos-chips">
+                        @for (fuente of respuestaRag.fuentes; track $index) {
+                          <button class="momento-chip" type="button" (click)="saltarATiempo(fuente.tiempoInicio)">
+                            {{ formatearTiempo(fuente.tiempoInicio) }} – {{ formatearTiempo(fuente.tiempoFin) }}
+                          </button>
+                        }
+                      </div>
                     </div>
                   }
                 </div>
@@ -614,6 +715,9 @@
                   </button>
                   @if (menuAsignaturaAbierto) {
                     <div class="menu-contextual asignatura-menu-dropdown">
+                      <button class="menu-btn" type="button" (click)="menuAsignaturaAbierto = false; abrirModalEditarAsignatura()">
+                        Editar asignatura
+                      </button>
                       <button class="menu-btn menu-btn-eliminar" type="button" (click)="menuAsignaturaAbierto = false; abrirModalEliminarAsignatura()">
                         Eliminar asignatura
                       </button>
@@ -678,29 +782,115 @@
 
             @if (resultadosBusquedaAsignatura.length > 0) {
               <div class="busqueda-asignatura-resultados">
-                <p class="resultados-label">{{ resultadosBusquedaAsignatura.length }} fragmentos encontrados</p>
-                @for (resultado of resultadosBusquedaAsignatura; track $index) {
-                  <button class="resultado-asignatura-item" type="button" (click)="abrirClase(resultado.idClase, undefined, asignaturaDetalle.id)">
-                    <div class="resultado-thumb">
-                      <img
-                        [src]="obtenerThumbnailYoutube(resultado.youtubeId)"
-                        [alt]="resultado.tituloClase"
-                        (error)="usarThumbnailFallback($event, resultado.youtubeId)"
-                      />
-                    </div>
-                    <div class="resultado-info">
-                      <p class="resultado-clase">{{ resultado.tituloClase }}</p>
-                      <p class="resultado-fragmento">{{ resultado.fragmento }}</p>
-                    </div>
-                    <div class="resultado-meta-derecha">
-                      <span class="resultado-tiempo">{{ formatearTiempo(resultado.tiempoInicio) }}</span>
-                      <span class="resultado-similitud">{{ formatearSimilitud(resultado.similitud) }}</span>
-                    </div>
-                  </button>
+                <p class="resultados-label">
+                  {{ resultadosBusquedaAgrupados.length }}
+                  {{ resultadosBusquedaAgrupados.length === 1 ? 'clase' : 'clases' }} ·
+                  {{ resultadosBusquedaAsignatura.length }} coincidencias
+                </p>
+
+                @for (grupo of resultadosBusquedaAgrupados; track grupo.idClase) {
+                  <div class="grupo-busqueda" [class.expandido]="grupoBusquedaExpandido === grupo.idClase">
+                    <!-- Cabecera de la clase (clic para expandir/contraer) -->
+                    <button class="grupo-busqueda-cabecera" type="button" (click)="alternarGrupoBusqueda(grupo.idClase)">
+                      <div class="resultado-thumb">
+                        <img
+                          [src]="obtenerThumbnailYoutube(grupo.youtubeId)"
+                          [alt]="grupo.tituloClase"
+                          (error)="usarThumbnailFallback($event, grupo.youtubeId)"
+                        />
+                      </div>
+                      <div class="grupo-busqueda-info">
+                        <p class="resultado-clase">{{ grupo.tituloClase }}</p>
+                        <p class="grupo-busqueda-meta">
+                          {{ grupo.coincidencias }} {{ grupo.coincidencias === 1 ? 'coincidencia' : 'coincidencias' }}
+                          @if (grupo.duracion) { · {{ grupo.duracion }} }
+                          @if (grupo.fecha) { · {{ grupo.fecha }} }
+                        </p>
+                      </div>
+                      <div class="grupo-busqueda-derecha">
+                        <span class="resultado-similitud">{{ formatearSimilitud(grupo.mejorSimilitud) }}</span>
+                        <span class="grupo-busqueda-flecha" [class.abierta]="grupoBusquedaExpandido === grupo.idClase" aria-hidden="true"></span>
+                      </div>
+                    </button>
+
+                    <!-- Fragmentos de la clase (acordeón) -->
+                    @if (grupoBusquedaExpandido === grupo.idClase) {
+                      <div class="grupo-busqueda-fragmentos">
+                        @for (fragmento of grupo.fragmentos; track $index) {
+                          <div class="grupo-fragmento-item">
+                            <div class="grupo-fragmento-texto">{{ fragmento.fragmento }}</div>
+                            <div class="grupo-fragmento-acciones">
+                              <span class="resultado-similitud">{{ formatearSimilitud(fragmento.similitud) }}</span>
+                              <button class="concepto-ir-momento" type="button" (click)="irAlMomentoConcepto(fragmento)">
+                                <span class="concepto-ir-tiempo">{{ formatearTiempo(fragmento.tiempoInicio) }}</span>
+                                Ir al momento
+                              </button>
+                            </div>
+                          </div>
+                        }
+                      </div>
+                    }
+                  </div>
                 }
               </div>
             }
           </section>
+
+          <!-- Conceptos del curso -->
+          @if (cargandoConceptosCurso || conceptosCurso.length > 0) {
+            <section class="conceptos-curso-section">
+              <div class="conceptos-curso-cabecera">
+                <div>
+                  <p class="section-eyebrow">CONCEPTOS DEL CURSO</p>
+                  <span class="cronologia-sub">Todo lo que se trabaja en esta asignatura, agrupado</span>
+                </div>
+                @if (conceptosCurso.length > 0) {
+                  <label class="concepto-buscador-curso">
+                    <input
+                      type="search"
+                      [(ngModel)]="filtroConceptosCurso"
+                      (ngModelChange)="alFiltrarConceptosCurso()"
+                      placeholder="Buscar concepto dentro del curso..."
+                    />
+                  </label>
+                }
+              </div>
+
+              @if (cargandoConceptosCurso) {
+                <div class="conceptos-curso-chips">
+                  <div class="concepto-chip skeleton-card"></div>
+                  <div class="concepto-chip skeleton-card"></div>
+                  <div class="concepto-chip skeleton-card"></div>
+                </div>
+              } @else {
+                <div class="conceptos-curso-chips" [class.colapsado]="!conceptosCursoExpandido">
+                  @for (concepto of conceptosCursoFiltrados; track concepto.nombre) {
+                    <button
+                      class="concepto-chip"
+                      type="button"
+                      [class.activo]="conceptoCursoActivo?.nombre === concepto.nombre"
+                      (click)="abrirConceptoCurso(concepto)"
+                    >
+                      <span class="concepto-chip-nombre">{{ concepto.nombre }}</span>
+                      <span class="concepto-chip-meta">
+                        {{ concepto.totalApariciones }} {{ concepto.totalApariciones === 1 ? 'clase' : 'clases' }}
+                        @if (conceptoCursoEsManual(concepto)) { <i class="concepto-tag concepto-tag-manual" title="Incluye conceptos manuales">manual</i> }
+                        @else if (conceptoCursoEsIa(concepto)) { <i class="concepto-tag" title="Generado por IA">IA</i> }
+                      </span>
+                    </button>
+                  } @empty {
+                    <p class="conceptos-curso-vacio">Ningún concepto coincide con la búsqueda.</p>
+                  }
+                </div>
+
+                @if (conceptosCursoExpandido || conceptosCursoDesborda) {
+                  <button class="conceptos-ver-mas" type="button" (click)="alternarConceptosCurso()">
+                    {{ conceptosCursoExpandido ? 'Ver menos' : 'Ver más' }}
+                  </button>
+                }
+              }
+            </section>
+          }
 
           <!-- Cronología curricular -->
           <section class="cronologia-section">
@@ -823,6 +1013,145 @@
   </div>
 }
 
+<!-- Modal: Estudio de concepto + nota global -->
+@if (modalConceptoCurso && conceptoCursoActivo) {
+  <div class="modal-overlay" (click)="cerrarModalConceptoCurso()">
+    <div class="modal-panel modal-concepto" (click)="$event.stopPropagation()">
+      <button class="modal-cerrar" type="button" aria-label="Cerrar" (click)="cerrarModalConceptoCurso()">×</button>
+
+      @if (editandoConcepto) {
+        <!-- Modo edición: nombre + definición (afecta a toda la asignatura) -->
+        <h2 class="modal-titulo concepto-modal-titulo">Editar concepto</h2>
+        <label class="modal-label">
+          Nombre <span class="modal-required">*</span>
+          <input class="modal-input" type="text" [(ngModel)]="editarConceptoNombre" (keydown.enter)="guardarEdicionConcepto()" />
+        </label>
+        <label class="modal-label">
+          Definición
+          <textarea class="modal-input modal-textarea" [(ngModel)]="editarConceptoDefinicion" placeholder="Definición del concepto…"></textarea>
+        </label>
+        <p class="concepto-edicion-aviso">Se actualizará en todas las clases de esta asignatura.</p>
+        @if (errorEdicionConcepto) {
+          <div class="status-message status-error">{{ errorEdicionConcepto }}</div>
+        }
+        <div class="modal-acciones">
+          <button class="modal-btn-cancelar" type="button" (click)="cancelarEdicionConcepto()">Cancelar</button>
+          <button class="modal-btn-confirmar" type="button" (click)="guardarEdicionConcepto()" [disabled]="guardandoEdicionConcepto">
+            @if (guardandoEdicionConcepto) { Guardando… } @else { Guardar cambios }
+          </button>
+        </div>
+      } @else {
+        <h2 class="modal-titulo concepto-modal-titulo">{{ conceptoCursoActivo.nombre }}</h2>
+        @if (definicionConceptoActivo) {
+          <p class="concepto-modal-definicion">{{ definicionConceptoActivo }}</p>
+        }
+      }
+
+      @if (!editandoConcepto) {
+      <!-- Clases donde aparece -->
+      <div class="concepto-modal-seccion">
+        <p class="concepto-modal-label">
+          Aparece en {{ conceptoCursoActivo.totalApariciones }}
+          {{ conceptoCursoActivo.totalApariciones === 1 ? 'clase' : 'clases' }}
+        </p>
+        <div class="concepto-modal-clases">
+          @for (aparicion of conceptoCursoActivo.clases; track $index) {
+            <div class="concepto-aparicion-item">
+              <div class="concepto-aparicion-info">
+                <p class="concepto-aparicion-clase">{{ aparicion.tituloClase }}</p>
+                @if (aparicion.definicion) {
+                  <p class="concepto-aparicion-def">{{ aparicion.definicion }}</p>
+                }
+              </div>
+              <button class="concepto-ir-momento" type="button" (click)="irAlMomentoConcepto(aparicion)">
+                <span class="concepto-ir-tiempo">{{ formatearTiempo(aparicion.tiempoInicio) }}</span>
+                Ir al momento
+              </button>
+            </div>
+          }
+        </div>
+      </div>
+
+      <!-- Nota personal global -->
+      <div class="concepto-modal-seccion">
+        <p class="concepto-modal-label">Tus apuntes sobre este concepto</p>
+        <textarea
+          class="modal-input modal-textarea concepto-nota-textarea"
+          [(ngModel)]="notaConcepto"
+          [disabled]="cargandoNotaConcepto"
+          placeholder="Escribe tus apuntes sobre este concepto…"
+        ></textarea>
+
+        @if (errorNotaConcepto) {
+          <div class="status-message status-error">{{ errorNotaConcepto }}</div>
+        }
+
+        <div class="concepto-nota-acciones">
+          @if (notaConceptoGuardada) {
+            <span class="concepto-nota-guardada">Nota guardada ✓</span>
+          }
+          <button class="modal-btn-confirmar" type="button" (click)="guardarNotaConcepto()" [disabled]="guardandoNotaConcepto || cargandoNotaConcepto">
+            @if (guardandoNotaConcepto) { Guardando… } @else { Guardar nota }
+          </button>
+        </div>
+      </div>
+
+      <!-- Acciones discretas: editar / eliminar concepto -->
+      <div class="concepto-modal-footer">
+        @if (confirmandoEliminarConcepto) {
+          <div class="concepto-eliminar-confirm">
+            <span>Eliminar este concepto de todas las clases de esta asignatura.</span>
+            <div class="concepto-eliminar-botones">
+              <button class="concepto-accion-link" type="button" (click)="cancelarEliminarConcepto()">Cancelar</button>
+              <button class="concepto-accion-link concepto-accion-peligro" type="button" (click)="confirmarEliminarConcepto()" [disabled]="eliminandoConcepto">
+                @if (eliminandoConcepto) { Eliminando… } @else { Sí, eliminar }
+              </button>
+            </div>
+          </div>
+        } @else {
+          <button class="concepto-accion-link" type="button" (click)="iniciarEdicionConcepto()">Editar concepto</button>
+          <button class="concepto-accion-link concepto-accion-peligro" type="button" (click)="iniciarEliminarConcepto()">Eliminar concepto</button>
+        }
+      </div>
+      }
+    </div>
+  </div>
+}
+
+<!-- Modal: Editar asignatura -->
+@if (modalEditarAsignatura && asignaturaDetalle) {
+  <div class="modal-overlay" (click)="cerrarModalEditarAsignatura()">
+    <div class="modal-panel" (click)="$event.stopPropagation()">
+      <h2 class="modal-titulo">Editar asignatura</h2>
+      <p class="modal-subtitulo">Actualiza los datos de esta asignatura.</p>
+
+      <label class="modal-label">
+        Nombre <span class="modal-required">*</span>
+        <input class="modal-input" type="text" [(ngModel)]="editarAsignaturaNombre" placeholder="Ej: Ingeniería del Software" (keydown.enter)="guardarEditarAsignatura()" />
+      </label>
+      <label class="modal-label">
+        Profesor
+        <input class="modal-input" type="text" [(ngModel)]="editarAsignaturaProfesor" placeholder="Ej: Manuel Martín" />
+      </label>
+      <label class="modal-label">
+        Descripción
+        <textarea class="modal-input modal-textarea" [(ngModel)]="editarAsignaturaDescripcion" placeholder="Descripción breve del temario..."></textarea>
+      </label>
+
+      @if (errorEditarAsignatura) {
+        <div class="status-message status-error">{{ errorEditarAsignatura }}</div>
+      }
+
+      <div class="modal-acciones">
+        <button class="modal-btn-cancelar" type="button" (click)="cerrarModalEditarAsignatura()">Cancelar</button>
+        <button class="modal-btn-confirmar" type="button" (click)="guardarEditarAsignatura()" [disabled]="guardandoEditarAsignatura">
+          @if (guardandoEditarAsignatura) { Guardando… } @else { Guardar cambios }
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
 <!-- Modal: Eliminar asignatura -->
 @if (modalEliminarAsignatura && asignaturaDetalle) {
   <div class="modal-overlay" (click)="cerrarModalEliminarAsignatura()">
@@ -856,6 +1185,94 @@
           [disabled]="eliminandoAsignatura || eliminarAsignaturaConfirmacion !== asignaturaDetalle.nombre"
         >
           @if (eliminandoAsignatura) { Eliminando… } @else { Eliminar definitivamente }
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Modal: Capítulo (crear / editar) -->
+@if (modalCapitulo) {
+  <div class="modal-overlay" (click)="cerrarModalCapitulo()">
+    <div class="modal-panel" (click)="$event.stopPropagation()">
+      <h2 class="modal-titulo">{{ capituloEditandoId != null ? 'Editar capítulo' : 'Añadir capítulo' }}</h2>
+      <p class="modal-subtitulo">Marca un punto de la clase con un título y, si quieres, una descripción.</p>
+
+      @if (capituloEditandoId == null) {
+        <div class="timestamp-detectado">Timestamp detectado: <strong>{{ formatearTiempo(tiempoDetectado) }}</strong></div>
+      }
+
+      <label class="modal-label">
+        Título <span class="modal-required">*</span>
+        <input class="modal-input" type="text" [(ngModel)]="formCapitulo.titulo" placeholder="Ej: Introducción a DTO" (keydown.enter)="guardarCapitulo()" />
+      </label>
+      <label class="modal-label">
+        Descripción
+        <textarea class="modal-input modal-textarea" [(ngModel)]="formCapitulo.descripcion" placeholder="Breve descripción del bloque..."></textarea>
+      </label>
+      <div class="modal-fila">
+        <label class="modal-label">
+          Inicio
+          <input class="modal-input" type="text" inputmode="numeric" [(ngModel)]="formCapitulo.tiempoInicio" placeholder="mm:ss" />
+        </label>
+        <label class="modal-label">
+          Fin opcional
+          <input class="modal-input" type="text" inputmode="numeric" [(ngModel)]="formCapitulo.tiempoFin" placeholder="mm:ss" />
+        </label>
+      </div>
+
+      @if (errorCapitulo) {
+        <div class="status-message status-error">{{ errorCapitulo }}</div>
+      }
+
+      <div class="modal-acciones">
+        <button class="modal-btn-cancelar" type="button" (click)="cerrarModalCapitulo()">Cancelar</button>
+        <button class="modal-btn-confirmar" type="button" (click)="guardarCapitulo()" [disabled]="guardandoCapitulo">
+          @if (guardandoCapitulo) { Guardando… } @else { Guardar }
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Modal: Concepto (crear / editar) -->
+@if (modalConcepto) {
+  <div class="modal-overlay" (click)="cerrarModalConcepto()">
+    <div class="modal-panel" (click)="$event.stopPropagation()">
+      <h2 class="modal-titulo">{{ conceptoEditandoId != null ? 'Editar concepto' : 'Añadir concepto' }}</h2>
+      <p class="modal-subtitulo">Define un concepto clave y el momento donde se explica.</p>
+
+      @if (conceptoEditandoId == null) {
+        <div class="timestamp-detectado">Timestamp detectado: <strong>{{ formatearTiempo(tiempoDetectado) }}</strong></div>
+      }
+
+      <label class="modal-label">
+        Nombre <span class="modal-required">*</span>
+        <input class="modal-input" type="text" [(ngModel)]="formConcepto.nombre" placeholder="Ej: Inyección de dependencias" (keydown.enter)="guardarConcepto()" />
+      </label>
+      <label class="modal-label">
+        Definición
+        <textarea class="modal-input modal-textarea" [(ngModel)]="formConcepto.definicion" placeholder="Explicación breve del concepto..."></textarea>
+      </label>
+      <div class="modal-fila">
+        <label class="modal-label">
+          Inicio
+          <input class="modal-input" type="text" inputmode="numeric" [(ngModel)]="formConcepto.tiempoInicio" placeholder="mm:ss" />
+        </label>
+        <label class="modal-label">
+          Fin opcional
+          <input class="modal-input" type="text" inputmode="numeric" [(ngModel)]="formConcepto.tiempoFin" placeholder="mm:ss" />
+        </label>
+      </div>
+
+      @if (errorConcepto) {
+        <div class="status-message status-error">{{ errorConcepto }}</div>
+      }
+
+      <div class="modal-acciones">
+        <button class="modal-btn-cancelar" type="button" (click)="cerrarModalConcepto()">Cancelar</button>
+        <button class="modal-btn-confirmar" type="button" (click)="guardarConcepto()" [disabled]="guardandoConcepto">
+          @if (guardandoConcepto) { Guardando… } @else { Guardar }
         </button>
       </div>
     </div>

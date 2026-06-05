@@ -15,9 +15,10 @@ public class CapituloVideoRepositorio implements PanacheRepository<CapituloVideo
     public List<CapituloVideoDTO> buscarPorVideoOrdenado(Long idVideo) {
         return getEntityManager()
             .createQuery(
-                "SELECT new es.comprendia.dto.CapituloVideoDTO(c.titulo, c.descripcion, " +
-                    "c.tiempoInicio, c.tiempoFin, c.ordenCapitulo, c.origen) " +
-                    "FROM CapituloVideo c WHERE c.video.id = :id ORDER BY c.ordenCapitulo",
+                "SELECT new es.comprendia.dto.CapituloVideoDTO(c.id, c.titulo, c.descripcion, " +
+                    "c.tiempoInicio, c.tiempoFin, c.ordenCapitulo, c.origen, c.creadoManual, c.generadoPorIa) " +
+                    "FROM CapituloVideo c WHERE c.video.id = :id " +
+                    "ORDER BY c.tiempoInicio ASC, c.ordenCapitulo ASC, c.id ASC",
                 CapituloVideoDTO.class)
             .setParameter("id", idVideo)
             .getResultList();
@@ -37,6 +38,10 @@ public class CapituloVideoRepositorio implements PanacheRepository<CapituloVideo
             capitulo.tiempoFin = dto.tiempoFin();
             capitulo.ordenCapitulo = dto.orden();
             capitulo.origen = dto.origen();
+            // Si el DTO no especifica los flags, se infieren del origen
+            boolean manual = Boolean.TRUE.equals(dto.creadoManual()) || "MANUAL".equalsIgnoreCase(dto.origen());
+            capitulo.creadoManual = manual;
+            capitulo.generadoPorIa = dto.generadoPorIa() != null ? dto.generadoPorIa() : !manual;
             persist(capitulo);
         }
     }

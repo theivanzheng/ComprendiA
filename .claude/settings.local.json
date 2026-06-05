@@ -28,7 +28,9 @@
       "WebFetch(domain:www.claudepluginhub.com)",
       "WebFetch(domain:github.com)",
       "Bash(curl -s -H \"Origin: http://localhost:4300\" -o /dev/null -w \"CORS 4300 -> access-control-allow-origin header presente: \" -D - \"http://localhost:8080/api/transcripciones/451\")",
-      "Bash(curl -s -H \"Origin: http://localhost:4300\" -D - -o /dev/null \"http://localhost:8080/api/transcripciones/451\")"
+      "Bash(curl -s -H \"Origin: http://localhost:4300\" -D - -o /dev/null \"http://localhost:8080/api/transcripciones/451\")",
+      "Bash(PGPASSWORD=npg_vTZh0RVLJQm9 psql 'host=ep-orange-hill-antfk1v8-pooler.c-6.us-east-1.aws.neon.tech dbname=neondb user=neondb_owner sslmode=require' -t -A '-F|' -c ' *)",
+      "Read(//tmp/**)"
     ]
   }
 }

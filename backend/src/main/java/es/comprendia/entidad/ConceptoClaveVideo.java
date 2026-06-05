@@ -25,6 +25,15 @@ public class ConceptoClaveVideo extends PanacheEntity {
     @Column(name = "tiempo_inicio")
     public Double tiempoInicio;
 
+    @Column(name = "tiempo_fin")
+    public Double tiempoFin;
+
     @Column(name = "orden_concepto")
     public Integer ordenConcepto;
+
+    @Column(name = "creado_manual")
+    public Boolean creadoManual = false;
+
+    @Column(name = "generado_por_ia")
+    public Boolean generadoPorIa = false;
 }

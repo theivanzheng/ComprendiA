@@ -24,6 +24,9 @@ public class PipelineWhisperServicio {
     @Inject
     TranscripcionAudioWhisperServicio transcripcionAudioWhisperServicio;
 
+    @Inject
+    SubtitulosYoutubeServicio subtitulosYoutubeServicio;
+
     // Orquesta la descarga de audio y la transcripción. Borra el archivo temporal al terminar.
     public RespuestaTranscripcionDTO transcribirDesdeAudio(String idVideo) {
         return transcribirDesdeAudio(idVideo, fase -> {});
@@ -38,6 +41,17 @@ public class PipelineWhisperServicio {
             actualizarFase.accept(Fase.DESCARGANDO);
             String titulo = audioExtraccionServicio.obtenerTitulo(idVideo);
             LOG.infof("[Estado] Título obtenido: %s", titulo);
+
+            // Optimización: si YouTube ya tiene subtítulos válidos, se usan y se omite Whisper
+            var subtitulos = subtitulosYoutubeServicio.obtenerSubtitulos(idVideo);
+            if (subtitulos.isPresent()) {
+                LOG.infof("[Subtitulos] Usando transcripción de YouTube (idioma=%s), se omite Whisper",
+                    subtitulos.get().idioma());
+                actualizarFase.accept(Fase.TRANSCRIBIENDO);
+                return new RespuestaTranscripcionDTO(idVideo, titulo, subtitulos.get().fragmentos(), "YOUTUBE");
+            }
+
+            // Fallback: descargar audio y transcribir con Whisper (comportamiento de siempre)
             archivoAudio = audioExtraccionServicio.extraerAudio(idVideo);
 
             LOG.info("[Estado] Iniciando transcripción Whisper");
@@ -47,7 +61,7 @@ public class PipelineWhisperServicio {
             LOG.infof("[Estado] Transcripción recibida — %d fragmentos en %d ms total (descarga + Whisper)",
                 fragmentos.size(), System.currentTimeMillis() - inicioTotal);
 
-            return new RespuestaTranscripcionDTO(idVideo, titulo, fragmentos, "REAL");
+            return new RespuestaTranscripcionDTO(idVideo, titulo, fragmentos, "WHISPER");
         } finally {
             eliminarArchivoTemporal(archivoAudio);
         }

@@ -210,13 +210,80 @@ curl "http://localhost:8080/api/transcripciones/{id}/buscar?pregunta=¿De qué t
 | POST | `/api/transcripciones/youtube/{idTrabajo}/cancelar` | Cancelar un trabajo de análisis en curso |
 | GET | `/api/transcripciones` | Historial paginado de vídeos |
 | GET | `/api/transcripciones/{id}` | Detalle/resumen de una clase concreta |
-| PATCH | `/api/transcripciones/{id}/metadata` | Actualizar asignatura, profesor, fecha de clase o completado |
+| DELETE | `/api/transcripciones/{id}` | Eliminar una clase y todos sus datos asociados |
+| PATCH | `/api/transcripciones/{id}/metadata` | Actualizar asignatura (`idAsignatura`), profesor (`idProfesor`), fecha de clase, completado o `resumen` |
 | PATCH | `/api/transcripciones/{id}/titulo` | Actualizar el título editable de una clase |
 | GET | `/api/transcripciones/{id}/fragmentos` | Fragmentos de un vídeo |
 | GET | `/api/transcripciones/{id}/capitulos` | Capítulos generados para navegar la clase |
+| POST | `/api/transcripciones/{id}/capitulos` | Crear un capítulo manual |
 | GET | `/api/transcripciones/{id}/conceptos` | Conceptos clave detectados en la clase |
+| POST | `/api/transcripciones/{id}/conceptos` | Crear un concepto manual |
 | GET | `/api/transcripciones/{id}/buscar?pregunta=...` | Búsqueda semántica |
 | GET | `/api/transcripciones/{id}/responder?pregunta=...` | Respuesta del asistente ComprendiA con RAG |
+| PATCH | `/api/capitulos/{id}` | Editar un capítulo |
+| DELETE | `/api/capitulos/{id}` | Eliminar un capítulo |
+| PATCH | `/api/conceptos/{id}` | Editar un concepto clave |
+| DELETE | `/api/conceptos/{id}` | Eliminar un concepto clave |
+| GET | `/api/asignaturas` | Listar asignaturas |
+| POST | `/api/asignaturas` | Crear asignatura (acepta `idProfesor`) |
+| GET | `/api/asignaturas/{id}` | Detalle de asignatura con clases, conceptos y horas |
+| PATCH | `/api/asignaturas/{id}` | Editar asignatura (acepta `idProfesor`) |
+| DELETE | `/api/asignaturas/{id}` | Eliminar asignatura (requiere `confirmacionNombre`) |
+| GET | `/api/asignaturas/{id}/buscar?pregunta=...` | Búsqueda semántica dentro de la asignatura |
+| GET | `/api/profesores` | Listar profesores |
+| POST | `/api/profesores` | Crear profesor (`nombre`, `email` opcional) |
+
+---
+
+## Modelo de datos
+
+| Entidad | Tabla | Campos principales | Relaciones |
+|---------|-------|--------------------|------------|
+| `Profesor` | `profesores` | nombre, email, fechaCreacion, fechaActualizacion | 1—N Asignatura, 1—N Video |
+| `Asignatura` | `asignaturas` | nombre, descripcion, profesor (texto compat.), fechaCreacion, fechaActualizacion | N—1 Profesor (`profesorObj`, principal); 1—N Video |
+| `Video` | `videos` | youtubeId, titulo, **resumen**, asignatura (texto compat.), profesor (texto compat.), fechaClase, completado, fuenteTranscripcion, fechaCreacion | N—1 Asignatura (`asignaturaObj`); N—1 Profesor (`profesorObj`, opcional) |
+| `CapituloVideo` | `capitulos_video` | titulo, descripcion, tiempoInicio, tiempoFin, ordenCapitulo, origen, **creadoManual**, **generadoPorIa** | N—1 Video |
+| `ConceptoClaveVideo` | `conceptos_clave_video` | nombre, definicion, tiempoInicio, **tiempoFin**, ordenConcepto, **creadoManual**, **generadoPorIa** | N—1 Video |
+| `FragmentoTranscripcion` | `fragmentos_transcripcion` | texto, tiempoInicio, tiempoFin, ordenFragmento, embedding (pgvector) | N—1 Video |
+
+**Compatibilidad y migración:** `Video.profesor`, `Video.asignatura` y `Asignatura.profesor` se conservan como texto para no perder datos antiguos. Al arrancar, dos inicializadores migran esos textos al modelo relacional sin borrarlos:
+
+- `InicializadorAsignaturas`: crea una `Asignatura` por cada texto de asignatura sin relación y vincula el vídeo.
+- `InicializadorProfesores`: crea un `Profesor` por cada texto de profesor (de vídeos y asignaturas) sin relación y lo vincula.
+
+Hibernate (`database.generation=update`) crea automáticamente las tablas y columnas nuevas (`profesores`, `videos.resumen`, `videos.profesor_id`, `asignaturas.profesor_id`, flags de capítulos/conceptos) al reiniciar.
+
+### Probar manualmente profesores, asignaturas, capítulos y conceptos
+
+Con el backend en marcha (`http://localhost:8080`):
+
+```bash
+# Crear un profesor
+curl -X POST localhost:8080/api/profesores -H 'Content-Type: application/json' \
+  -d '{"nombre":"Manuel Martín","email":"manuel@upsa.es"}'
+
+# Crear una asignatura con ese profesor (usa el id devuelto arriba)
+curl -X POST localhost:8080/api/asignaturas -H 'Content-Type: application/json' \
+  -d '{"nombre":"Ingeniería del Software","descripcion":"Patrones y arquitectura","idProfesor":1}'
+
+# Asignar una clase a esa asignatura y profesor + guardar resumen
+curl -X PATCH localhost:8080/api/transcripciones/451/metadata -H 'Content-Type: application/json' \
+  -d '{"idAsignatura":1,"idProfesor":1,"resumen":"Clase sobre DTO y capas."}'
+
+# Añadir un capítulo manual a la clase
+curl -X POST localhost:8080/api/transcripciones/451/capitulos -H 'Content-Type: application/json' \
+  -d '{"titulo":"Introducción","descripcion":"Contexto inicial","tiempoInicio":0,"tiempoFin":90}'
+
+# Editar / borrar ese capítulo (usa el id devuelto)
+curl -X PATCH localhost:8080/api/capitulos/1 -H 'Content-Type: application/json' -d '{"titulo":"Intro revisada"}'
+curl -X DELETE localhost:8080/api/capitulos/1
+
+# Añadir un concepto manual
+curl -X POST localhost:8080/api/transcripciones/451/conceptos -H 'Content-Type: application/json' \
+  -d '{"nombre":"DTO","definicion":"Objeto de transferencia de datos","tiempoInicio":15}'
+```
+
+Tras cada operación, recargar la clase (`GET /api/transcripciones/451/capitulos` y `/conceptos`) confirma que los datos quedan persistidos en PostgreSQL.
 
 ---
 

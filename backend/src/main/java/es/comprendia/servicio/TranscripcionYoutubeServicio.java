@@ -90,6 +90,8 @@ public class TranscripcionYoutubeServicio {
             };
             LOG.infof("[Tiempo] Transcripción completada en %d ms — %d fragmentos",
                 System.currentTimeMillis() - inicioFase, respuesta.getFragmentos().size());
+            // [Diagnóstico] Cobertura temporal de la transcripción
+            registrarDiagnosticoTranscripcion(respuesta);
 
             verificarCancelacion(cancelado);
 
@@ -115,6 +117,7 @@ public class TranscripcionYoutubeServicio {
             verificarCancelacion(cancelado);
 
             LOG.info("[Estado] Generando capitulos y conceptos clave");
+            actualizarFase.accept(Fase.ANALIZANDO);
             inicioFase = System.currentTimeMillis();
             analisisClaseServicio.generarYGuardar(idVideoGuardado, fragmentosGuardados);
             LOG.infof("[Tiempo] Analisis de clase completado en %d ms",
@@ -143,6 +146,23 @@ public class TranscripcionYoutubeServicio {
         if (Thread.currentThread().isInterrupted() || cancelado.getAsBoolean()) {
             throw new CancellationException("Trabajo cancelado por el usuario");
         }
+    }
+
+    // [Diagnóstico] Registra la cobertura temporal de la transcripción recién obtenida
+    private void registrarDiagnosticoTranscripcion(RespuestaTranscripcionDTO respuesta) {
+        var fragmentos = respuesta.getFragmentos();
+        if (fragmentos == null || fragmentos.isEmpty()) {
+            LOG.warn("[Diagnostico] Transcripción sin fragmentos");
+            return;
+        }
+        double primerInicio = fragmentos.stream()
+            .mapToDouble(f -> f.getTiempoInicio())
+            .min().orElse(0.0);
+        double ultimoFin = fragmentos.stream()
+            .mapToDouble(f -> f.getTiempoFin())
+            .max().orElse(0.0);
+        LOG.infof("[Diagnostico] Transcripción: %d fragmentos, primer inicio=%.0fs, ultimo fin=%.0fs (fuente=%s)",
+            fragmentos.size(), primerInicio, ultimoFin, respuesta.getFuenteTranscripcion());
     }
 
     private RespuestaTranscripcionDTO procesarConScraping(String idVideo) {

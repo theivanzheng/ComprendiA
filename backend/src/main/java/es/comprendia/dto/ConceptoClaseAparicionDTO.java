@@ -1,12 +1,11 @@
 package es.comprendia.dto;
 
-public record ConceptoClaveVideoDTO(
-    Long id,
-    String nombre,
+public record ConceptoClaseAparicionDTO(
+    Long idClase,
+    String tituloClase,
     String definicion,
     Double tiempoInicio,
     Double tiempoFin,
-    Integer orden,
     Boolean creadoManual,
     Boolean generadoPorIa
 ) {}

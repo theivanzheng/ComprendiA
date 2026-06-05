@@ -12,6 +12,7 @@ import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -42,70 +43,150 @@ public class AnalisisClaseServicio {
             return;
         }
 
+        List<FragmentoTranscripcion> ordenados = ordenar(fragmentos);
+        double duracion = maxTiempoFin(ordenados);
+        double primerInicio = valorTiempo(ordenados.get(0).tiempoInicio);
+        // [Diagnóstico] Estado de los fragmentos que entran al análisis
+        LOG.infof("[Analisis] Entrada: %d fragmentos, primer inicio=%.0fs, ultimo fin=%.0fs (duracion=%.0fs)",
+            ordenados.size(), primerInicio, duracion, duracion);
+
         ResultadoAnalisis resultado;
+        boolean usandoGpt;
         try {
-            resultado = analisisGptHabilitado
-                ? generarConGpt(fragmentos)
-                : generarFallback(fragmentos);
+            if (analisisGptHabilitado) {
+                resultado = generarConGpt(ordenados, duracion);
+                usandoGpt = true;
+                LOG.infof("[Analisis] Capitulos generados por GPT (%d capitulos)", resultado.capitulos().size());
+            } else {
+                resultado = generarFallback(ordenados);
+                usandoGpt = false;
+                LOG.info("[Analisis] GPT deshabilitado: usando fallback local por contenido");
+            }
         } catch (Exception e) {
-            LOG.warnf("[Analisis] Fallback local por error generando capitulos con GPT: %s", e.getMessage());
-            resultado = generarFallback(fragmentos);
+            LOG.warnf("[Analisis] Fallback local porque GPT falló: %s", e.getMessage());
+            resultado = generarFallback(ordenados);
+            usandoGpt = false;
+        }
+
+        double maxCapFin = maxTiempoFinCapitulos(resultado.capitulos());
+        // Guard de cobertura SUAVE: si GPT dio capítulos semánticos pero no llegan al final,
+        // NO se regenera por bloques (eso parecería "un capítulo por minuto"): se amplía el
+        // último capítulo hasta el final, conservando los títulos reales de GPT.
+        if (usandoGpt && duracion > 0 && maxCapFin < 0.85 * duracion && !resultado.capitulos().isEmpty()) {
+            LOG.infof("[Analisis] Cobertura GPT hasta %.0fs de %.0fs (%.0f%%): se amplia el ultimo capitulo hasta el final (sin trocear por minutos)",
+                maxCapFin, duracion, (maxCapFin / duracion) * 100);
+            resultado = ampliarUltimoCapituloHastaFinal(resultado, duracion);
+            maxCapFin = maxTiempoFinCapitulos(resultado.capitulos());
         }
 
         capituloRepositorio.reemplazar(idVideo, resultado.capitulos());
         conceptoRepositorio.reemplazar(idVideo, resultado.conceptos());
-        LOG.infof("[Analisis] Guardados %d capitulos y %d conceptos para video id=%s",
-            resultado.capitulos().size(), resultado.conceptos().size(), idVideo);
+        LOG.infof("[Analisis] Guardados %d capitulos (fuente=%s, cubren hasta %.0fs de %.0fs) y %d conceptos para video id=%s",
+            resultado.capitulos().size(), usandoGpt ? "GPT" : "FALLBACK", maxCapFin, duracion,
+            resultado.conceptos().size(), idVideo);
     }
 
-    private ResultadoAnalisis generarConGpt(List<FragmentoTranscripcion> fragmentos) {
+    // Amplía el tiempoFin del último capítulo hasta la duración total, conservando el resto.
+    private ResultadoAnalisis ampliarUltimoCapituloHastaFinal(ResultadoAnalisis resultado, double duracion) {
+        List<CapituloVideoDTO> capitulos = new ArrayList<>(resultado.capitulos());
+        int ultimo = capitulos.size() - 1;
+        CapituloVideoDTO c = capitulos.get(ultimo);
+        double inicio = c.tiempoInicio() == null ? 0.0 : c.tiempoInicio();
+        capitulos.set(ultimo, new CapituloVideoDTO(
+            c.id(), c.titulo(), c.descripcion(), inicio, Math.max(duracion, inicio),
+            c.orden(), c.origen(), c.creadoManual(), c.generadoPorIa()));
+        return new ResultadoAnalisis(capitulos, resultado.conceptos());
+    }
+
+    private double maxTiempoFin(List<FragmentoTranscripcion> fragmentos) {
+        return fragmentos.stream().map(f -> valorTiempo(f.tiempoFin)).max(Double::compareTo).orElse(0.0);
+    }
+
+    private double maxTiempoFinCapitulos(List<CapituloVideoDTO> capitulos) {
+        return capitulos.stream()
+            .map(c -> c.tiempoFin() == null ? 0.0 : c.tiempoFin())
+            .max(Double::compareTo).orElse(0.0);
+    }
+
+    private ResultadoAnalisis generarConGpt(List<FragmentoTranscripcion> fragmentos, double duracion) {
         String sistema = """
-            Eres un analista educativo. Tu tarea es convertir una transcripcion con timestamps en capitulos utiles para navegar una clase y conceptos clave para estudiar.
-            Devuelve solo JSON valido. No uses markdown.
-            Los capitulos deben agrupar ideas completas, no copiar fragmentos sueltos.
-            Los conceptos deben ser concretos, tener definicion corta y apuntar al timestamp donde mejor se explican.
+            Eres un analista educativo. Conviertes la transcripcion de una clase en capitulos
+            para navegarla y en conceptos clave para estudiar.
+            Devuelve solo JSON valido, sin markdown.
+            NO inventes tiempos ni segundos: no incluyas marcas de tiempo en la respuesta.
+            Para cada capitulo y concepto incluye "fraseClave": una frase LITERAL (copiada tal cual)
+            de la transcripcion en el punto donde EMPIEZA ese tema o donde se explica ese concepto.
+            La fraseClave debe poder encontrarse en la transcripcion (5 a 12 palabras).
             """;
 
         String usuario = """
-            Genera entre 4 y 8 capitulos y entre 6 y 10 conceptos clave.
-            Responde con esta forma exacta:
+            Genera entre 5 y 8 capitulos en orden cronologico que cubran toda la clase,
+            y entre 6 y 10 conceptos clave. Responde con esta forma exacta:
             {
               "capitulos": [
-                {"titulo": "...", "descripcion": "...", "tiempoInicio": 0, "tiempoFin": 120}
+                {"titulo": "...", "descripcion": "...", "fraseClave": "frase literal de la transcripcion donde empieza este capitulo"}
               ],
               "conceptos": [
-                {"nombre": "...", "definicion": "...", "tiempoInicio": 15}
+                {"nombre": "...", "definicion": "...", "fraseClave": "frase literal de la transcripcion donde se explica el concepto"}
               ]
             }
 
-            Transcripcion:
+            Transcripcion (cada linea: [segundo] texto). Usala solo para extraer la fraseClave literal:
             """ + construirTranscripcionCompacta(fragmentos);
 
         String json = chatGptServicio.completarEstructurado(sistema, usuario, 1800);
-        return parsearAnalisis(json, fragmentos);
+        return parsearAnalisis(json, fragmentos, duracion);
     }
 
-    private ResultadoAnalisis parsearAnalisis(String json, List<FragmentoTranscripcion> fragmentos) {
+    private ResultadoAnalisis parsearAnalisis(String json, List<FragmentoTranscripcion> fragmentos, double duracion) {
         try {
             JsonNode raiz = mapeadorJson.readTree(json);
-            List<CapituloVideoDTO> capitulos = new ArrayList<>();
-            List<ConceptoClaveVideoDTO> conceptos = new ArrayList<>();
+            List<FragmentoTranscripcion> ordenados = ordenar(fragmentos);
 
+            // ── Capítulos: timestamp = fragmento real más parecido a la fraseClave, monótono ──
+            record CapDatos(String titulo, String descripcion, String fraseClave) {}
+            List<CapDatos> capDatos = new ArrayList<>();
             int orden = 0;
             for (JsonNode nodo : raiz.path("capitulos")) {
                 String titulo = limpiar(nodo.path("titulo").asText("Capitulo " + (orden + 1)), 90);
                 String descripcion = limpiar(nodo.path("descripcion").asText(""), 220);
-                double inicio = normalizarTiempo(nodo.path("tiempoInicio").asDouble(0), fragmentos);
-                double fin = normalizarTiempo(nodo.path("tiempoFin").asDouble(inicio), fragmentos);
-                capitulos.add(new CapituloVideoDTO(titulo, descripcion, inicio, Math.max(fin, inicio), orden++, "IA"));
+                String frase = limpiar(nodo.path("fraseClave").asText(""), 200);
+                capDatos.add(new CapDatos(titulo, descripcion, frase));
+                orden++;
             }
 
+            List<CapituloVideoDTO> capitulos = new ArrayList<>();
+            int indicePrevio = -1; // garantiza orden temporal estrictamente creciente
+            int[] indicesUsados = new int[capDatos.size()];
+            for (int i = 0; i < capDatos.size(); i++) {
+                CapDatos c = capDatos.get(i);
+                int idx = emparejarFragmento(ordenados, c.fraseClave() + " " + c.titulo(), indicePrevio + 1);
+                if (idx <= indicePrevio) idx = Math.min(indicePrevio + 1, ordenados.size() - 1);
+                indicePrevio = idx;
+                indicesUsados[i] = idx;
+                FragmentoTranscripcion frag = ordenados.get(idx);
+                double inicio = valorTiempo(frag.tiempoInicio);
+                // [Diagnóstico] Trazabilidad título → fragmento real → timestamp
+                LOG.infof("[Analisis][Cap %d] titulo='%s' | fraseClave='%s' -> fragmento#%d (t=%.0fs) texto='%s'",
+                    i + 1, c.titulo(), c.fraseClave(), idx, inicio, recorte(frag.texto, 60));
+                capitulos.add(new CapituloVideoDTO(null, c.titulo(), c.descripcion(), inicio, inicio, i, "IA", false, true));
+            }
+
+            // tiempoFin de cada capítulo = inicio del siguiente; el último, hasta la duración
+            capitulos = ajustarMonotonicidadYFines(capitulos, duracion);
+
+            // ── Conceptos: timestamp = fragmento real más parecido (sin forzar monotonía) ──
+            List<ConceptoClaveVideoDTO> conceptos = new ArrayList<>();
             orden = 0;
             for (JsonNode nodo : raiz.path("conceptos")) {
                 String nombre = limpiar(nodo.path("nombre").asText("Concepto " + (orden + 1)), 80);
                 String definicion = limpiar(nodo.path("definicion").asText(""), 220);
-                double inicio = normalizarTiempo(nodo.path("tiempoInicio").asDouble(0), fragmentos);
-                conceptos.add(new ConceptoClaveVideoDTO(nombre, definicion, inicio, orden++));
+                String frase = limpiar(nodo.path("fraseClave").asText(""), 200);
+                int idx = emparejarFragmento(ordenados, frase + " " + nombre, 0);
+                double inicio = idx >= 0 ? valorTiempo(ordenados.get(idx).tiempoInicio) : 0.0;
+                LOG.infof("[Analisis][Concepto %d] '%s' | fraseClave='%s' -> fragmento#%d (t=%.0fs)",
+                    orden + 1, nombre, frase, idx, inicio);
+                conceptos.add(new ConceptoClaveVideoDTO(null, nombre, definicion, inicio, null, orden++, false, true));
             }
 
             if (capitulos.size() < 2 || conceptos.size() < 3) {
@@ -118,12 +199,96 @@ public class AnalisisClaseServicio {
         }
     }
 
+    // Devuelve el índice del fragmento (a partir de desde) con mayor solape léxico con el texto
+    // objetivo. -1 si no hay candidatos.
+    private int emparejarFragmento(List<FragmentoTranscripcion> ordenados, String objetivo, int desde) {
+        java.util.Set<String> tokensObjetivo = tokensSignificativos(objetivo);
+        int mejorIdx = -1;
+        int mejorPuntos = -1;
+        for (int j = Math.max(0, desde); j < ordenados.size(); j++) {
+            int puntos = solape(ordenados.get(j).texto, tokensObjetivo);
+            if (puntos > mejorPuntos) {
+                mejorPuntos = puntos;
+                mejorIdx = j;
+            }
+        }
+        // Si no hubo ningún solape real, no forzamos un match arbitrario aquí
+        if (mejorPuntos <= 0 && desde > 0) return -1;
+        return mejorIdx;
+    }
+
+    private int solape(String textoFragmento, java.util.Set<String> tokensObjetivo) {
+        if (tokensObjetivo.isEmpty()) return 0;
+        java.util.Set<String> tokensFragmento = tokensSignificativos(textoFragmento);
+        int puntos = 0;
+        for (String t : tokensObjetivo) {
+            if (tokensFragmento.contains(t)) puntos++;
+        }
+        return puntos;
+    }
+
+    private static final java.util.Set<String> VACIAS = java.util.Set.of(
+        "que", "con", "una", "por", "para", "los", "las", "del", "como", "más", "mas",
+        "the", "and", "for", "that", "this", "with", "you", "your", "are", "was", "but", "have", "has");
+
+    private java.util.Set<String> tokensSignificativos(String texto) {
+        if (texto == null) return java.util.Set.of();
+        String norm = Normalizer.normalize(texto.toLowerCase(), Normalizer.Form.NFD)
+            .replaceAll("\\p{M}", "")
+            .replaceAll("[^a-z0-9\\s]", " ");
+        java.util.Set<String> tokens = new java.util.HashSet<>();
+        for (String t : norm.split("\\s+")) {
+            if (t.length() >= 3 && !VACIAS.contains(t)) tokens.add(t);
+        }
+        return tokens;
+    }
+
+    // Asegura tiempos estrictamente crecientes y fija tiempoFin = inicio del siguiente capítulo.
+    private List<CapituloVideoDTO> ajustarMonotonicidadYFines(List<CapituloVideoDTO> capitulos, double duracion) {
+        List<CapituloVideoDTO> ajustados = new ArrayList<>(capitulos);
+        // 0) El primer capítulo arranca en 0 (la clase empieza al inicio del vídeo)
+        if (!ajustados.isEmpty()) {
+            CapituloVideoDTO p = ajustados.get(0);
+            ajustados.set(0, new CapituloVideoDTO(p.id(), p.titulo(), p.descripcion(), 0.0, 0.0,
+                p.orden(), p.origen(), p.creadoManual(), p.generadoPorIa()));
+        }
+        // 1) Monotonicidad estricta de tiempoInicio
+        for (int i = 1; i < ajustados.size(); i++) {
+            double prev = valorTiempo(ajustados.get(i - 1).tiempoInicio());
+            double actual = valorTiempo(ajustados.get(i).tiempoInicio());
+            if (actual <= prev) {
+                actual = Math.min(prev + 1, Math.max(duracion, prev + 1));
+                CapituloVideoDTO c = ajustados.get(i);
+                ajustados.set(i, new CapituloVideoDTO(c.id(), c.titulo(), c.descripcion(), actual, actual,
+                    c.orden(), c.origen(), c.creadoManual(), c.generadoPorIa()));
+            }
+        }
+        // 2) tiempoFin = inicio del siguiente (o duración para el último)
+        for (int i = 0; i < ajustados.size(); i++) {
+            CapituloVideoDTO c = ajustados.get(i);
+            double inicio = valorTiempo(c.tiempoInicio());
+            double fin = (i + 1 < ajustados.size())
+                ? valorTiempo(ajustados.get(i + 1).tiempoInicio())
+                : Math.max(duracion, inicio);
+            ajustados.set(i, new CapituloVideoDTO(c.id(), c.titulo(), c.descripcion(), inicio,
+                Math.max(fin, inicio), c.orden(), c.origen(), c.creadoManual(), c.generadoPorIa()));
+        }
+        return ajustados;
+    }
+
+    private String recorte(String texto, int max) {
+        if (texto == null) return "";
+        String t = texto.replaceAll("\\s+", " ").trim();
+        return t.length() <= max ? t : t.substring(0, max) + "…";
+    }
+
     private ResultadoAnalisis generarFallback(List<FragmentoTranscripcion> fragmentos) {
         List<FragmentoTranscripcion> ordenados = ordenar(fragmentos);
         List<CapituloVideoDTO> capitulos = new ArrayList<>();
         List<ConceptoClaveVideoDTO> conceptos = new ArrayList<>();
 
-        int numeroCapitulos = Math.min(6, Math.max(3, ordenados.size() / 4));
+        // Pocos bloques amplios (3–5) basados en agrupar contenido, no en minutos exactos.
+        int numeroCapitulos = Math.min(5, Math.max(3, ordenados.size() / 10));
         int tamanyoBloque = Math.max(1, (int) Math.ceil(ordenados.size() / (double) numeroCapitulos));
 
         for (int i = 0; i < ordenados.size(); i += tamanyoBloque) {
@@ -131,61 +296,93 @@ public class AnalisisClaseServicio {
             FragmentoTranscripcion primero = bloque.get(0);
             FragmentoTranscripcion ultimo = bloque.get(bloque.size() - 1);
             int orden = capitulos.size();
-            String titulo = tituloDesdeTexto(primero.texto, "Bloque " + (orden + 1));
+            // Título a partir del texto real del bloque (nunca "Bloque N" / "Capítulo N")
+            String titulo = tituloDesdeTexto(primero.texto, tituloDesdeTexto(unirTextos(bloque), "Parte " + (orden + 1)));
             String descripcion = limpiar(unirTextos(bloque), 190);
             capitulos.add(new CapituloVideoDTO(
+                null,
                 titulo,
                 descripcion,
                 valorTiempo(primero.tiempoInicio),
                 valorTiempo(ultimo.tiempoFin),
                 orden,
-                "AUTO"
+                "AUTO",
+                false,
+                true
             ));
         }
 
         for (int i = 0; i < Math.min(8, ordenados.size()); i++) {
             FragmentoTranscripcion fragmento = ordenados.get(i);
             conceptos.add(new ConceptoClaveVideoDTO(
+                null,
                 tituloDesdeTexto(fragmento.texto, "Concepto " + (i + 1)),
                 limpiar(fragmento.texto, 180),
                 valorTiempo(fragmento.tiempoInicio),
-                i
+                null,
+                i,
+                false,
+                true
             ));
         }
 
         return new ResultadoAnalisis(capitulos, conceptos);
     }
 
+    // Construye la transcripción para GPT con el segundo de inicio de cada fragmento.
+    // Si excede el presupuesto de caracteres, NO corta el principio: muestrea fragmentos
+    // de forma uniforme a lo largo de TODO el vídeo (incluido el final), para que los
+    // capítulos puedan cubrir la duración completa.
     private String construirTranscripcionCompacta(List<FragmentoTranscripcion> fragmentos) {
+        List<FragmentoTranscripcion> ordenados = ordenar(fragmentos);
+
+        int tamanoTotal = ordenados.stream()
+            .mapToInt(f -> (f.texto == null ? 0 : f.texto.length()) + 12)
+            .sum();
+
+        List<FragmentoTranscripcion> seleccion;
+        if (tamanoTotal <= MAX_CARACTERES_TRANSCRIPCION) {
+            seleccion = ordenados;
+        } else {
+            int tamanoMedio = Math.max(1, tamanoTotal / ordenados.size());
+            int objetivo = Math.max(8, MAX_CARACTERES_TRANSCRIPCION / tamanoMedio);
+            seleccion = muestrearUniforme(ordenados, objetivo);
+            LOG.infof("[Analisis] Transcripcion larga (%d chars): muestreados %d de %d fragmentos repartidos por todo el video",
+                tamanoTotal, seleccion.size(), ordenados.size());
+        }
+
         StringBuilder constructor = new StringBuilder();
-        for (FragmentoTranscripcion fragmento : ordenar(fragmentos)) {
-            if (constructor.length() >= MAX_CARACTERES_TRANSCRIPCION) break;
+        for (FragmentoTranscripcion fragmento : seleccion) {
             constructor
                 .append("[")
-                .append(formatearTiempo(valorTiempo(fragmento.tiempoInicio)))
-                .append(" - ")
-                .append(formatearTiempo(valorTiempo(fragmento.tiempoFin)))
+                .append((int) valorTiempo(fragmento.tiempoInicio))
                 .append("] ")
-                .append(fragmento.texto)
+                .append(fragmento.texto == null ? "" : fragmento.texto.trim())
                 .append("\n");
         }
         return constructor.toString();
+    }
+
+    // Selecciona 'objetivo' elementos repartidos uniformemente, garantizando el último.
+    private List<FragmentoTranscripcion> muestrearUniforme(List<FragmentoTranscripcion> lista, int objetivo) {
+        if (lista.size() <= objetivo) return lista;
+        java.util.LinkedHashSet<Integer> indices = new java.util.LinkedHashSet<>();
+        double paso = (double) (lista.size() - 1) / (objetivo - 1);
+        for (int i = 0; i < objetivo; i++) {
+            indices.add((int) Math.round(i * paso));
+        }
+        indices.add(lista.size() - 1); // asegurar que el final del vídeo está presente
+        List<FragmentoTranscripcion> resultado = new ArrayList<>();
+        for (int indice : indices) {
+            resultado.add(lista.get(indice));
+        }
+        return resultado;
     }
 
     private List<FragmentoTranscripcion> ordenar(List<FragmentoTranscripcion> fragmentos) {
         return fragmentos.stream()
             .sorted(Comparator.comparing(f -> f.ordenFragmento == null ? 0 : f.ordenFragmento))
             .toList();
-    }
-
-    private double normalizarTiempo(double segundos, List<FragmentoTranscripcion> fragmentos) {
-        double maximo = fragmentos.stream()
-            .map(f -> valorTiempo(f.tiempoFin))
-            .max(Double::compareTo)
-            .orElse(0.0);
-        if (segundos < 0) return 0;
-        if (maximo <= 0) return segundos;
-        return Math.min(segundos, maximo);
     }
 
     private double valorTiempo(Double valor) {
@@ -211,13 +408,6 @@ public class AnalisisClaseServicio {
         return fragmentos.stream()
             .map(f -> f.texto == null ? "" : f.texto)
             .reduce("", (a, b) -> (a + " " + b).trim());
-    }
-
-    private String formatearTiempo(double segundos) {
-        int total = (int) Math.floor(segundos);
-        int minutos = total / 60;
-        int resto = total % 60;
-        return String.format("%d:%02d", minutos, resto);
     }
 
     private record ResultadoAnalisis(

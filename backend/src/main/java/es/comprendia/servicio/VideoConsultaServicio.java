@@ -74,6 +74,12 @@ public class VideoConsultaServicio {
             : (video.asignatura == null || video.asignatura.isBlank() ? "Sin asignatura" : video.asignatura);
         Long idAsignatura = video.asignaturaObj != null ? video.asignaturaObj.id : null;
 
+        // El profesor relacionado tiene prioridad sobre el texto antiguo
+        String nombreProfesor = video.profesorObj != null
+            ? video.profesorObj.nombre
+            : (video.profesor == null || video.profesor.isBlank() ? "Profesor pendiente" : video.profesor);
+        Long idProfesor = video.profesorObj != null ? video.profesorObj.id : null;
+
         return new VideoResumenDTO(
             video.id,
             video.youtubeId,
@@ -82,10 +88,12 @@ public class VideoConsultaServicio {
             video.fuenteTranscripcion,
             numeroFragmentos,
             nombreAsignatura,
-            video.profesor == null || video.profesor.isBlank() ? "Profesor pendiente" : video.profesor,
+            nombreProfesor,
             video.fechaClase,
             Boolean.TRUE.equals(video.completado),
-            idAsignatura
+            idAsignatura,
+            idProfesor,
+            video.resumen
         );
     }
 }

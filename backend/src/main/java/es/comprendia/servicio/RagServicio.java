@@ -155,12 +155,12 @@ public class RagServicio {
     }
 
     private String construirContexto(List<ResultadoBusquedaDTO> fuentes) {
+        // No se numeran los extractos para que el modelo no cite "fragmento [1]".
+        // Solo se aporta el rango de tiempo en formato m:ss y el texto.
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < fuentes.size(); i++) {
-            ResultadoBusquedaDTO f = fuentes.get(i);
-            sb.append("[").append(i + 1).append("] ")
-              .append("[").append(formatearTiempo(f.tiempoInicio())).append(" - ")
-              .append(formatearTiempo(f.tiempoFin())).append("] ")
+        for (ResultadoBusquedaDTO f : fuentes) {
+            sb.append("(").append(formatearTiempo(f.tiempoInicio())).append(" - ")
+              .append(formatearTiempo(f.tiempoFin())).append(") ")
               .append(f.texto())
               .append("\n");
         }

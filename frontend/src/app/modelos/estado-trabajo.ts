@@ -5,6 +5,7 @@ export type FaseTrabajo =
   | 'TRANSCRIBIENDO'
   | 'GUARDANDO'
   | 'EMBEDDINGS'
+  | 'ANALIZANDO'
   | 'COMPLETADO'
   | 'CANCELADO'
   | 'ERROR';

@@ -13,6 +13,9 @@ import { ConceptoClaveVideo } from '../modelos/concepto-clave-video';
 import { Asignatura } from '../modelos/asignatura';
 import { AsignaturaDetalle } from '../modelos/asignatura-detalle';
 import { ResultadoBusquedaAsignatura } from '../modelos/resultado-busqueda-asignatura';
+import { Profesor } from '../modelos/profesor';
+import { ConceptoCurso } from '../modelos/concepto-curso';
+import { NotaConcepto } from '../modelos/nota-concepto';
 
 export interface VideoMetadata {
   asignatura?: string;
@@ -20,12 +23,34 @@ export interface VideoMetadata {
   fechaClase?: string;
   completado?: boolean;
   idAsignatura?: number | null;
+  idProfesor?: number | null;
+  resumen?: string;
 }
 
 export interface SolicitudAsignatura {
   nombre: string;
   descripcion?: string;
   profesor?: string;
+  idProfesor?: number | null;
+}
+
+export interface SolicitudProfesor {
+  nombre: string;
+  email?: string;
+}
+
+export interface SolicitudCapitulo {
+  titulo: string;
+  descripcion?: string;
+  tiempoInicio?: number;
+  tiempoFin?: number;
+}
+
+export interface SolicitudConcepto {
+  nombre: string;
+  definicion?: string;
+  tiempoInicio?: number;
+  tiempoFin?: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -122,6 +147,74 @@ export class TranscripcionServicio {
       `${this.urlBase}/asignaturas/${id}/buscar`,
       { params: { pregunta } }
     );
+  }
+
+  obtenerConceptosCurso(id: number): Observable<ConceptoCurso[]> {
+    return this.http.get<ConceptoCurso[]>(`${this.urlBase}/asignaturas/${id}/conceptos`);
+  }
+
+  obtenerNotaConcepto(idAsignatura: number, nombreConcepto: string): Observable<NotaConcepto> {
+    return this.http.get<NotaConcepto>(
+      `${this.urlBase}/asignaturas/${idAsignatura}/conceptos/${encodeURIComponent(nombreConcepto)}/nota`
+    );
+  }
+
+  guardarNotaConcepto(idAsignatura: number, nombreConcepto: string, nota: string): Observable<NotaConcepto> {
+    return this.http.patch<NotaConcepto>(
+      `${this.urlBase}/asignaturas/${idAsignatura}/conceptos/${encodeURIComponent(nombreConcepto)}/nota`,
+      { nota }
+    );
+  }
+
+  editarConceptoCurso(idAsignatura: number, nombreConcepto: string, nuevoNombre: string, definicion: string): Observable<void> {
+    return this.http.patch<void>(
+      `${this.urlBase}/asignaturas/${idAsignatura}/conceptos/${encodeURIComponent(nombreConcepto)}`,
+      { nuevoNombre, definicion }
+    );
+  }
+
+  eliminarConceptoCurso(idAsignatura: number, nombreConcepto: string): Observable<void> {
+    return this.http.delete<void>(
+      `${this.urlBase}/asignaturas/${idAsignatura}/conceptos/${encodeURIComponent(nombreConcepto)}`
+    );
+  }
+
+  // ── Profesores ───────────────────────────────────────────────────────────
+
+  obtenerProfesores(): Observable<Profesor[]> {
+    return this.http.get<Profesor[]>(`${this.urlBase}/profesores`);
+  }
+
+  crearProfesor(solicitud: SolicitudProfesor): Observable<Profesor> {
+    return this.http.post<Profesor>(`${this.urlBase}/profesores`, solicitud);
+  }
+
+  // ── Capítulos (CRUD manual) ──────────────────────────────────────────────
+
+  crearCapitulo(idVideo: number, solicitud: SolicitudCapitulo): Observable<CapituloVideo> {
+    return this.http.post<CapituloVideo>(`${this.urlBase}/transcripciones/${idVideo}/capitulos`, solicitud);
+  }
+
+  actualizarCapitulo(idCapitulo: number, solicitud: SolicitudCapitulo): Observable<CapituloVideo> {
+    return this.http.patch<CapituloVideo>(`${this.urlBase}/capitulos/${idCapitulo}`, solicitud);
+  }
+
+  eliminarCapitulo(idCapitulo: number): Observable<void> {
+    return this.http.delete<void>(`${this.urlBase}/capitulos/${idCapitulo}`);
+  }
+
+  // ── Conceptos (CRUD manual) ──────────────────────────────────────────────
+
+  crearConcepto(idVideo: number, solicitud: SolicitudConcepto): Observable<ConceptoClaveVideo> {
+    return this.http.post<ConceptoClaveVideo>(`${this.urlBase}/transcripciones/${idVideo}/conceptos`, solicitud);
+  }
+
+  actualizarConcepto(idConcepto: number, solicitud: SolicitudConcepto): Observable<ConceptoClaveVideo> {
+    return this.http.patch<ConceptoClaveVideo>(`${this.urlBase}/conceptos/${idConcepto}`, solicitud);
+  }
+
+  eliminarConcepto(idConcepto: number): Observable<void> {
+    return this.http.delete<void>(`${this.urlBase}/conceptos/${idConcepto}`);
   }
 
   buscar(id: number, pregunta: string): Observable<ResultadoBusqueda[]> {
