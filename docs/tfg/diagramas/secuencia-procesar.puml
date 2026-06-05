@@ -1,0 +1,30 @@
+@startuml secuencia-procesar
+skinparam shadowing false
+skinparam defaultFontName Helvetica
+actor Estudiante as U
+participant "Frontend" as F
+participant "Backend\n(pipeline)" as B
+participant "yt-dlp" as Y
+participant "OpenAI" as O
+database "PostgreSQL\n+ pgvector" as D
+
+U -> F : Pega URL y pulsa "Analizar"
+F -> B : POST /transcripciones/youtube
+B --> F : idTrabajo (202)
+F -> B : abre WebSocket /ws/trabajos/{id}
+
+B -> Y : obtener subtítulos / audio
+B -> O : (Whisper si no hay subtítulos)
+B --> F : fase TRANSCRIBIENDO
+B -> D : guardar vídeo y fragmentos
+B --> F : fase GUARDANDO
+B -> O : generar embeddings
+B -> D : guardar embeddings
+B --> F : fase EMBEDDINGS
+B -> O : capítulos y conceptos
+B -> D : guardar análisis
+B --> F : fase ANALIZANDO
+B -> B : clasificar asignatura
+B --> F : fase COMPLETADO (+ resultado)
+F -> U : abre la pantalla de la clase
+@enduml

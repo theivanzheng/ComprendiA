@@ -1,0 +1,43 @@
+\chapter{Manual de instalación y uso}
+\label{anexo:manual}
+
+Este anexo resume cómo instalar, arrancar y utilizar ComprendiA. La información detallada y
+actualizada se encuentra en el fichero \texttt{README.md} del repositorio del proyecto.
+
+\section{Requisitos previos}
+
+\begin{itemize}
+  \item \texttt{yt-dlp} y \texttt{ffmpeg} instalados en el sistema.
+  \item Java~21 y Maven.
+  \item Node.js y Angular CLI.
+  \item Una base de datos PostgreSQL (por ejemplo, en Neon) y una clave de la API de OpenAI.
+\end{itemize}
+
+\section{Configuración}
+
+Las credenciales se definen en el fichero \texttt{backend/.env} (no versionado), con la clave de
+OpenAI y la cadena de conexión a la base de datos. Existe una plantilla \texttt{.env.example} como
+referencia.
+
+\section{Arranque}
+
+\begin{enumerate}
+  \item \textbf{Backend:} desde \texttt{backend/}, ejecutar \texttt{mvn quarkus:dev}. El servidor
+        escucha en \texttt{http://localhost:8080}.
+  \item \textbf{Frontend:} desde \texttt{frontend/}, ejecutar \texttt{npm install} y \texttt{ng
+        serve}. La aplicación se abre en \texttt{http://localhost:4200}.
+\end{enumerate}
+
+\section{Uso básico}
+
+\begin{enumerate}
+  \item Pegar la URL de un vídeo de YouTube y pulsar \textit{Analizar}.
+  \item Seguir el progreso del procesamiento (descarga, transcripción, guardado,
+        \textit{embeddings} y análisis).
+  \item Al terminar, se abre la pantalla de la clase con el reproductor, los capítulos, los
+        conceptos clave y el asistente.
+  \item Editar la asignatura, el profesor o la fecha; usar el chat para preguntas globales o
+        concretas; y saltar al minuto exacto desde capítulos, conceptos o respuestas.
+\end{enumerate}
+
+% TODO: añadir capturas de pantalla de la pantalla de clase, del chat y del grid de asignaturas.

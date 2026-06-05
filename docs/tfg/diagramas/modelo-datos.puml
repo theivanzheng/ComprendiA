@@ -1,0 +1,74 @@
+@startuml modelo-datos
+skinparam shadowing false
+skinparam linetype ortho
+hide methods
+hide circle
+
+entity Profesor {
+  * id
+  --
+  nombre
+  email
+}
+
+entity Asignatura {
+  * id
+  --
+  nombre
+  descripcion
+  canalYoutubeId
+  canalYoutubeNombre
+  palabrasClave
+  embeddingResumen
+}
+
+entity Video {
+  * id
+  --
+  youtubeId
+  titulo
+  resumen
+  fechaClase
+  completado
+  fuenteTranscripcion
+  canalYoutubeId
+  asignaturaSugerida
+  criterioAsignacion
+}
+
+entity FragmentoTranscripcion {
+  * id
+  --
+  texto
+  tiempoInicio
+  tiempoFin
+  ordenFragmento
+  embedding : vector
+}
+
+entity CapituloVideo {
+  * id
+  --
+  titulo
+  descripcion
+  tiempoInicio
+  tiempoFin
+  generadoPorIa
+}
+
+entity ConceptoClaveVideo {
+  * id
+  --
+  nombre
+  definicion
+  tiempoInicio
+  generadoPorIa
+}
+
+Profesor ||--o{ Asignatura
+Profesor ||--o{ Video
+Asignatura ||--o{ Video
+Video ||--o{ FragmentoTranscripcion
+Video ||--o{ CapituloVideo
+Video ||--o{ ConceptoClaveVideo
+@enduml

@@ -1,3 +1,7 @@
+# Ruido de macOS
+.DS_Store
+**/.DS_Store
+
 # Configuración local de herramientas
 .claude/settings.local.json
 *.local.json
@@ -7,3 +11,7 @@
 .env.*
 # ...pero sí versionamos la plantilla de ejemplo
 !.env.example
+
+# Archivos temporales de Office
+~$*
+.~lock.*

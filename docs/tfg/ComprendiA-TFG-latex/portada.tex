@@ -1,0 +1,54 @@
+% ---------------------------------------------------------------------------
+%  Portada y primera página (con firma del director).
+%  La normativa pide: escudo UPSA, "Trabajo Fin de Grado" + título completo,
+%  estudiante, director, "Salamanca, mes de año".
+% ---------------------------------------------------------------------------
+\begin{titlepage}
+  \centering
+  % TODO: sustituir por el escudo oficial de la UPSA (escudo-upsa.png en /img)
+  % \includegraphics[width=0.28\textwidth]{img/escudo-upsa.png}\\[1.2cm]
+  {\large Universidad Pontificia de Salamanca\\Facultad de Informática\par}
+  \vfill
+  {\Large\bfseries Trabajo Fin de Grado\par}
+  \vspace{1.5cm}
+  {\huge\bfseries ComprendiA:\\[0.4cm] copiloto educativo para el análisis y consulta de vídeos de YouTube\par}
+  \vspace{2cm}
+  {\large Grado en Ingeniería Informática\par}
+  \vfill
+  \begin{flushright}
+    \large
+    \textbf{Autor:} Iván Zheng\\[0.4cm]
+    \textbf{Director:} % TODO: nombre del director/a
+  \end{flushright}
+  \vfill
+  {\large Salamanca, junio de 2026\par} % TODO: ajustar mes/año de entrega
+\end{titlepage}
+\thispagestyle{empty}
+
+% --- Primera página interior: igual que la portada, con firma del director ---
+\cleardoublepage
+\begin{titlepage}
+  \centering
+  {\large Universidad Pontificia de Salamanca\\Facultad de Informática\par}
+  \vfill
+  {\Large\bfseries Trabajo Fin de Grado\par}
+  \vspace{1.5cm}
+  {\huge\bfseries ComprendiA:\\[0.4cm] copiloto educativo para el análisis y consulta de vídeos de YouTube\par}
+  \vspace{2cm}
+  {\large Grado en Ingeniería Informática\par}
+  \vfill
+  \begin{flushright}
+    \large
+    \textbf{Autor:} Iván Zheng\\[1.2cm]
+    \rule{6cm}{0.4pt}\\[0.2cm]      % línea para la firma
+    \textbf{Vº Bº del Director:} % TODO: nombre del director/a
+  \end{flushright}
+  \vfill
+  {\large Salamanca, junio de 2026\par}
+\end{titlepage}
+\thispagestyle{empty}
+
+% --- Página en blanco ---
+\cleardoublepage
+\thispagestyle{empty}
+\mbox{}

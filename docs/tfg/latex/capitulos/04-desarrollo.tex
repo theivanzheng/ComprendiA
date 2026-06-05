@@ -1,0 +1,182 @@
+\chapter{Desarrollo}
+\label{cap:desarrollo}
+
+Este capítulo describe cómo se ha construido ComprendiA: la metodología seguida, las
+tecnologías empleadas, la arquitectura del sistema, el modelo de datos, el pipeline de
+procesamiento y la implementación de cada módulo funcional.
+
+\section{Metodología}
+
+El desarrollo se ha llevado a cabo con una metodología iterativa e incremental, aplicando
+principios de Scrum. El trabajo se organizó en \textit{sprints} cortos (de una a dos semanas):
+en cada uno se planificaban tareas concretas, se implementaban, se probaban y se revisaban con
+el tutor. Este enfoque permitió validar funcionalidades de forma temprana y reorientar el
+alcance cuando fue necesario, en lugar de fijar todos los requisitos al inicio.
+
+Cada incremento añadió una capacidad completa y utilizable: primero la transcripción y la
+persistencia, después la búsqueda semántica y el asistente, más tarde el análisis automático
+(capítulos y conceptos), la organización por asignaturas y, por último, la clasificación
+automática de asignaturas.
+
+\section{Tecnologías y herramientas}
+
+\begin{itemize}
+  \item \textbf{Backend:} Java~21 sobre \textbf{Quarkus}, con Hibernate ORM (Panache) para la
+        persistencia, \textbf{WebSockets} (\texttt{quarkus-websockets-next}) para el progreso en
+        tiempo real y ejecución del procesamiento en hilos virtuales de Java~21.
+  \item \textbf{Base de datos:} \textbf{PostgreSQL} (alojada en Neon) con la extensión
+        \textbf{pgvector} para almacenar y consultar \textit{embeddings}.
+  \item \textbf{Frontend:} \textbf{Angular} en modo \textit{zoneless}, con una interfaz en modo
+        oscuro que integra reproductor, capítulos, conceptos y chat.
+  \item \textbf{Servicios de IA (OpenAI):} \texttt{whisper} (transcripción),
+        \texttt{text-embedding-3-small} (\textit{embeddings}) y \texttt{gpt-4o-mini} (chat,
+        resúmenes y análisis).
+  \item \textbf{Obtención de vídeo:} \texttt{yt-dlp} para descargar audio, subtítulos y
+        metadatos del canal, y \texttt{ffmpeg} para el tratamiento del audio.
+\end{itemize}
+
+% TODO: justificar brevemente la elección de Quarkus frente a Spring Boot, y de Angular zoneless.
+
+\section{Arquitectura general}
+
+% TODO: incluir el diagrama de arquitectura en img/arquitectura.png
+El sistema sigue una arquitectura cliente-servidor. El \textit{frontend} Angular consume una API
+REST expuesta por el \textit{backend} Quarkus. El \textit{backend} se organiza en capas:
+recursos REST (\texttt{recurso}), servicios de dominio (\texttt{servicio}), repositorios de
+acceso a datos (\texttt{repositorio}) y entidades (\texttt{entidad}), además de objetos de
+transferencia (\texttt{dto}). Los servicios externos (YouTube vía \texttt{yt-dlp} y la API de
+OpenAI) se invocan desde la capa de servicios.
+
+\section{Modelo de datos}
+
+Las entidades principales son \texttt{Video} (una clase procesada), \texttt{Asignatura},
+\texttt{Profesor}, \texttt{FragmentoTranscripcion} (con su \textit{embedding}),
+\texttt{CapituloVideo} y \texttt{ConceptoClaveVideo}. La tabla~\ref{tab:entidades} resume las
+relaciones; el detalle de campos se encuentra en el repositorio del proyecto.
+
+\begin{table}[H]
+  \centering
+  \caption{Entidades principales del modelo de datos.}
+  \label{tab:entidades}
+  \begin{tabular}{p{3.2cm}p{9cm}}
+    \toprule
+    \textbf{Entidad} & \textbf{Descripción y relaciones} \\
+    \midrule
+    \texttt{Video} & Clase procesada. N--1 con \texttt{Asignatura} y \texttt{Profesor}. Guarda
+      metadatos editables y los campos de clasificación automática. \\
+    \texttt{Asignatura} & Agrupa vídeos. Incluye datos para la clasificación (canal de YouTube,
+      palabras clave y \textit{embedding} representativo). \\
+    \texttt{Profesor} & Docente asociado a vídeos y asignaturas. \\
+    \texttt{FragmentoTranscripcion} & Fragmento de transcripción con tiempos y \textit{embedding}
+      (\texttt{pgvector}). Base de la búsqueda semántica. \\
+    \texttt{CapituloVideo} & Capítulo navegable (IA o manual) con tiempos. \\
+    \texttt{ConceptoClaveVideo} & Concepto clave con definición y marca de tiempo. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Para no perder datos antiguos, los nombres de asignatura y profesor se conservan también como
+texto y se migran al modelo relacional al arrancar la aplicación.
+
+\section{Pipeline de procesamiento asíncrono}
+
+Al solicitar el análisis de un vídeo, el \textit{backend} responde de inmediato con un
+identificador de trabajo y ejecuta el procesamiento en segundo plano. El progreso se transmite
+al \textit{frontend} \textbf{en tiempo real mediante WebSockets}: el cliente se conecta al canal
+\texttt{/ws/trabajos/\{id\}} y recibe cada cambio de fase según ocurre. Si la conexión WebSocket
+no está disponible, el sistema recurre automáticamente a un sondeo (\textit{polling}) HTTP
+periódico, de modo que la funcionalidad se mantiene en cualquier caso. La barra de progreso
+recorre las fases:
+
+\begin{center}
+\texttt{DESCARGANDO} $\rightarrow$ \texttt{TRANSCRIBIENDO} $\rightarrow$ \texttt{GUARDANDO}
+$\rightarrow$ \texttt{EMBEDDINGS} $\rightarrow$ \texttt{ANALIZANDO} $\rightarrow$ \texttt{COMPLETADO}
+\end{center}
+
+El trabajo puede terminar también como \texttt{CANCELADO} o \texttt{ERROR}. Si el usuario cancela,
+el sistema interrumpe el hilo y elimina los datos parciales ya guardados, dejando la base de datos
+en un estado consistente.
+
+\section{Módulos funcionales}
+
+\subsection{Transcripción}
+
+El sistema intenta primero obtener los subtítulos del vídeo con \texttt{yt-dlp} (prefiriendo
+español y luego inglés). Si existen y tienen calidad suficiente, se usan directamente y se omite
+Whisper. En caso contrario, se descarga el audio y se transcribe con Whisper. Cada vía queda
+registrada en el campo \texttt{fuenteTranscripcion} (\texttt{YOUTUBE} o \texttt{WHISPER}).
+
+\subsection{Indexación y búsqueda semántica}
+
+La transcripción se divide en fragmentos con sus tiempos. Para cada fragmento se genera un
+\textit{embedding} que se almacena con \texttt{pgvector}. Ante una consulta, se calcula el
+\textit{embedding} de la pregunta y se recuperan los fragmentos más cercanos por distancia del
+coseno.
+
+\subsection{Análisis automático: capítulos y conceptos}
+
+Tras generar los \textit{embeddings}, un servicio de análisis solicita al modelo de lenguaje la
+segmentación de la clase en capítulos y la extracción de conceptos clave. Para evitar que el
+modelo invente marcas de tiempo, los capítulos se anclan a fragmentos reales de la transcripción
+mediante coincidencia léxica de una frase clave, y después se normalizan temporalmente (orden,
+eliminación de solapamientos y ajuste de los tiempos de fin). Si el modelo falla, se aplica una
+segmentación local por bloques temporales para no interrumpir el procesamiento.
+
+\subsection{Asistente conversacional (RAG)}
+
+El asistente responde preguntas sobre el vídeo combinando recuperación semántica y generación de
+lenguaje. Distingue entre preguntas globales (resumen, ideas principales), para las que construye
+contexto con el título, los capítulos, los conceptos y una muestra representativa de fragmentos,
+y preguntas concretas, para las que recupera los fragmentos más relevantes y cita el momento
+exacto del vídeo.
+
+El chat mantiene una \textbf{memoria corta} del diálogo en el \textit{frontend} (las últimas
+interacciones, sin persistencia en el servidor). Esa memoria, junto con la última entidad
+mencionada, se envía al \textit{backend} para resolver referencias implícitas: por ejemplo, si el
+alumno pregunta ``¿y el móvil?'' tras hablar del ``iPhone 17 Pro Max'', el sistema enriquece la
+búsqueda con esa entidad para recuperar los fragmentos correctos.
+
+\subsection{Organización y clasificación automática de asignaturas}
+
+Las clases se agrupan en asignaturas. Para reducir el trabajo manual, al terminar el análisis el
+sistema sugiere automáticamente una asignatura siguiendo este orden de decisión:
+
+\begin{enumerate}
+  \item \textbf{Por canal de YouTube:} si ya existe una asignatura asociada al mismo canal
+        (por identificador o por nombre normalizado), se asigna esa.
+  \item \textbf{Por similitud semántica:} en caso contrario, se compara el \textit{embedding} del
+        vídeo (título, resumen, conceptos y capítulos) con el de cada asignatura existente; si la
+        similitud supera un umbral, se reutiliza esa asignatura.
+  \item \textbf{Nueva asignatura:} si ninguna resulta adecuada, se crea una nueva (por ejemplo,
+        ``Vídeos de \textit{<canal>}'').
+\end{enumerate}
+
+En todos los casos, la asignatura se marca como \textbf{sugerencia} (metadato visual): la interfaz
+muestra ``Asignatura: X (sugerencia)''. La palabra ``sugerencia'' nunca forma parte del nombre
+real. Si el usuario cambia la asignatura a mano, deja de ser sugerencia y el sistema registra que
+la asignación fue manual; además, la asignatura ``aprende'' el canal del vídeo para clasificar
+mejor los siguientes.
+
+\section{Diseño de la API REST}
+
+La comunicación entre \textit{frontend} y \textit{backend} se realiza mediante una API REST. La
+tabla~\ref{tab:endpoints} recoge los \textit{endpoints} más representativos.
+
+\begin{longtable}{p{1.5cm}p{6.5cm}p{5cm}}
+  \caption{\textit{Endpoints} principales de la API.}\label{tab:endpoints}\\
+  \toprule
+  \textbf{Método} & \textbf{Ruta} & \textbf{Descripción} \\
+  \midrule
+  \endhead
+  POST & \texttt{/api/transcripciones/youtube} & Iniciar análisis (asíncrono). \\
+  GET & \texttt{/api/transcripciones/youtube/\{id\}} & Estado del trabajo. \\
+  GET & \texttt{/api/transcripciones} & Historial de clases. \\
+  GET & \texttt{/api/transcripciones/\{id\}} & Detalle de una clase. \\
+  PATCH & \texttt{/api/transcripciones/\{id\}/metadata} & Editar metadatos (asignatura, profesor\ldots). \\
+  GET & \texttt{/api/transcripciones/\{id\}/capitulos} & Capítulos de la clase. \\
+  GET & \texttt{/api/transcripciones/\{id\}/conceptos} & Conceptos clave. \\
+  GET & \texttt{/api/transcripciones/\{id\}/buscar} & Búsqueda semántica. \\
+  POST & \texttt{/api/transcripciones/\{id\}/conversar} & Chat conversacional con memoria corta. \\
+  GET & \texttt{/api/asignaturas} & Listar asignaturas. \\
+  \bottomrule
+\end{longtable}

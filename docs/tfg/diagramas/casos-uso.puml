@@ -1,0 +1,28 @@
+@startuml casos-uso
+left to right direction
+skinparam packageStyle rectangle
+skinparam shadowing false
+actor "Estudiante" as E
+
+rectangle ComprendiA {
+  usecase "Procesar vídeo" as UC1
+  usecase "Consultar clase" as UC2
+  usecase "Preguntar al asistente" as UC3
+  usecase "Buscar en el vídeo" as UC4
+  usecase "Gestionar asignaturas" as UC5
+  usecase "Editar metadatos de clase" as UC6
+  usecase "Cancelar procesamiento" as UC7
+}
+
+E --> UC1
+E --> UC2
+E --> UC3
+E --> UC4
+E --> UC5
+E --> UC6
+E --> UC7
+
+UC1 ..> UC7 : <<extend>>
+UC2 ..> UC3 : <<include>>
+UC2 ..> UC4 : <<include>>
+@enduml

@@ -1,0 +1,35 @@
+@startuml arquitectura
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Helvetica
+
+actor "Estudiante" as user
+
+package "Frontend (Angular)" {
+  [Interfaz web\n(reproductor, capítulos,\nconceptos, chat)] as ui
+}
+
+package "Backend (Quarkus / Java 21)" {
+  [Recursos REST] as rest
+  [WebSocket\n/ws/trabajos] as ws
+  [Servicios de dominio] as serv
+  [Repositorios\n(Panache)] as repo
+}
+
+database "PostgreSQL\n+ pgvector" as db
+
+cloud "Servicios externos" {
+  [OpenAI\n(Whisper, embeddings,\ngpt-4o-mini)] as openai
+  [YouTube\n(yt-dlp)] as yt
+}
+
+user --> ui
+ui --> rest : HTTP (REST)
+ui <--> ws : progreso en tiempo real
+rest --> serv
+ws --> serv
+serv --> repo
+repo --> db
+serv --> openai
+serv --> yt
+@enduml

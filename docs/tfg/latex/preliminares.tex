@@ -1,0 +1,59 @@
+% ---------------------------------------------------------------------------
+%  Resumen (200-250 palabras), Abstract y Descriptores.
+% ---------------------------------------------------------------------------
+\cleardoublepage
+\chapter*{Resumen}
+\addcontentsline{toc}{chapter}{Resumen}
+
+ComprendiA es una aplicación web educativa que transforma vídeos de YouTube en material
+de estudio consultable. A partir de la URL de una grabación, el sistema obtiene su
+transcripción —reutilizando los subtítulos de YouTube cuando existen y recurriendo al
+modelo Whisper en caso contrario—, la divide en fragmentos y genera un \textit{embedding}
+por fragmento que permite la búsqueda semántica sobre el contenido. Sobre esa base, un
+proceso de análisis automático produce capítulos navegables y conceptos clave con sus
+marcas de tiempo, y un asistente conversacional responde preguntas del alumno mediante una
+arquitectura de generación aumentada por recuperación (RAG), manteniendo una memoria corta
+del diálogo para resolver referencias implícitas.
+
+La aplicación organiza las clases procesadas en asignaturas. Para reducir el trabajo manual,
+incorpora una clasificación automática que sugiere a qué asignatura pertenece cada vídeo
+nuevo, primero por coincidencia de canal de YouTube y, si no la hay, por similitud semántica
+con las asignaturas existentes, creando una nueva cuando ninguna resulta adecuada.
+
+El sistema se ha construido con un \textit{backend} en Java 21 sobre Quarkus, una base de
+datos PostgreSQL con la extensión \texttt{pgvector} y un \textit{frontend} en Angular. Esta
+memoria describe la motivación, el estado del arte de las tecnologías implicadas, la
+especificación de requisitos, el diseño y la implementación del sistema, las pruebas
+realizadas y las líneas de trabajo futuras.
+
+\vspace{1cm}
+\section*{Abstract}
+
+% TODO: revisar la traducción con un hablante nativo antes de la entrega.
+ComprendiA is an educational web application that turns YouTube videos into searchable study
+material. Given a video URL, the system obtains its transcript —reusing YouTube subtitles when
+available and falling back to the Whisper model otherwise—, splits it into fragments and
+generates one embedding per fragment to enable semantic search over the content. On top of
+this, an automatic analysis produces navigable chapters and key concepts with their
+timestamps, and a conversational assistant answers the student's questions using a
+retrieval-augmented generation (RAG) architecture, keeping a short-term memory of the dialogue
+to resolve implicit references.
+
+The application organises processed lectures into subjects. To reduce manual effort, it
+includes an automatic classifier that suggests which subject each new video belongs to, first
+by matching the YouTube channel and, failing that, by semantic similarity with existing
+subjects, creating a new one when none fits.
+
+The system is built with a Java 21 backend on Quarkus, a PostgreSQL database with the
+\texttt{pgvector} extension and an Angular frontend. This document covers the motivation,
+the state of the art, the requirements specification, the design and implementation, the
+testing performed and future work.
+
+\vspace{1cm}
+\section*{Descriptores / Keywords}
+
+\noindent\textbf{Descriptores:} transcripción automática, búsqueda semántica, \textit{embeddings},
+generación aumentada por recuperación (RAG), tecnología educativa.
+
+\noindent\textbf{Keywords:} automatic transcription, semantic search, embeddings,
+retrieval-augmented generation (RAG), educational technology.

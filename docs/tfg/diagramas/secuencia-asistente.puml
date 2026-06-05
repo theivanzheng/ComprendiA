@@ -1,0 +1,21 @@
+@startuml secuencia-asistente
+skinparam shadowing false
+skinparam defaultFontName Helvetica
+actor Estudiante as U
+participant "Frontend\n(chat)" as F
+participant "RagServicio" as R
+participant "OpenAI\n(embeddings + gpt)" as O
+database "PostgreSQL\n+ pgvector" as D
+
+U -> F : Escribe una pregunta
+F -> R : POST /conversar (pregunta + memoria corta)
+R -> O : embedding de la pregunta
+O --> R : vector
+R -> D : buscar fragmentos por similitud (coseno)
+D --> R : fragmentos relevantes (con tiempos)
+R -> R : construir contexto
+R -> O : contexto + pregunta -> redactar respuesta
+O --> R : respuesta
+R --> F : respuesta + fuentes (momentos del vídeo)
+F -> U : muestra la respuesta y los enlaces al minuto
+@enduml

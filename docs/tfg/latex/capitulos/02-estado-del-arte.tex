@@ -1,0 +1,63 @@
+\chapter{Estado del arte}
+\label{cap:estado-arte}
+
+Este capítulo revisa las tecnologías sobre las que se apoya ComprendiA y las alternativas
+consideradas en cada caso, justificando las decisiones tomadas.
+
+\section{Transcripción automática del habla}
+
+La conversión de voz a texto (\textit{Automatic Speech Recognition}, ASR) es el primer paso del
+sistema. Se valoraron dos vías:
+
+\begin{itemize}
+  \item \textbf{Subtítulos de YouTube.} Muchos vídeos disponen de subtítulos, ya sean manuales o
+        generados automáticamente por la plataforma. Reutilizarlos evita descargar y procesar el
+        audio, reduciendo notablemente el tiempo y el coste.
+  \item \textbf{Whisper} \cite{radford2022whisper}. Modelo de reconocimiento del habla de OpenAI,
+        robusto frente a ruido y con buen rendimiento multilingüe. Se emplea como alternativa
+        cuando el vídeo no ofrece subtítulos válidos.
+\end{itemize}
+
+ComprendiA adopta una estrategia híbrida: intenta primero obtener los subtítulos mediante
+\texttt{yt-dlp} y solo recurre a Whisper si no existen o son de calidad insuficiente. Esta
+decisión prioriza el rendimiento sin renunciar a la cobertura.
+
+\section{Representación semántica: \textit{embeddings}}
+
+Para poder buscar por significado y no solo por coincidencia de palabras, el texto se
+transforma en vectores numéricos (\textit{embeddings}) que sitúan fragmentos de contenido
+similar cerca en el espacio vectorial. Se utiliza el modelo \texttt{text-embedding-3-small} de
+OpenAI por su equilibrio entre calidad y coste. La similitud entre vectores se mide con la
+distancia del coseno.
+
+El almacenamiento y la consulta eficiente de estos vectores se resuelven con la extensión
+\texttt{pgvector} \cite{pgvector} de PostgreSQL, que añade un tipo de dato vectorial y
+operadores de distancia indexables a una base de datos relacional convencional, evitando
+introducir una base de datos vectorial dedicada.
+
+\section{Búsqueda semántica y generación aumentada por recuperación (RAG)}
+
+La arquitectura RAG \cite{lewis2020rag} combina la recuperación de información con la generación
+de lenguaje natural: ante una pregunta, primero se recuperan los fragmentos más relevantes
+mediante búsqueda semántica y después se entregan a un modelo de lenguaje como contexto para que
+redacte la respuesta. Frente al uso directo de un modelo generativo, RAG reduce las alucinaciones
+y ancla las respuestas en el contenido real del vídeo, además de permitir citar el momento exacto
+de la grabación.
+
+\section{Modelos de lenguaje generativos}
+
+Para la redacción de respuestas, la generación de resúmenes y la extracción de capítulos y
+conceptos se emplea \texttt{gpt-4o-mini} de OpenAI, un modelo de coste contenido y latencia
+razonable, suficiente para las tareas planteadas. El sistema está diseñado para degradar de
+forma controlada: si el modelo no está disponible, se aplican alternativas locales (por ejemplo,
+una segmentación por bloques temporales) para no interrumpir el procesamiento.
+
+\section{Herramientas y plataformas similares}
+
+% TODO: ampliar con un breve estudio comparativo (p. ej. funciones de resumen de vídeo de
+% terceros, extensiones de navegador, plataformas LMS) y una tabla comparativa.
+Existen soluciones que abordan partes del problema —generadores de resúmenes de vídeo,
+extensiones que transcriben YouTube o asistentes de estudio genéricos—, pero no integran en un
+único flujo la transcripción, el análisis estructurado (capítulos y conceptos), la consulta
+conversacional anclada en el vídeo y la organización por asignaturas. ComprendiA se diferencia
+precisamente por esa integración orientada al estudio.

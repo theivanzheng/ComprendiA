@@ -1,0 +1,55 @@
+\chapter{Pruebas y resultados}
+\label{cap:pruebas}
+
+Este capítulo describe las pruebas realizadas para validar el sistema y los resultados
+obtenidos, relacionándolos con los objetivos planteados en la introducción.
+
+\section{Pruebas automáticas}
+
+El \textit{backend} cuenta con una batería de pruebas automáticas (JUnit y \texttt{@QuarkusTest})
+que se ejecutan sin depender de servicios externos. Para ello, en el entorno de pruebas se usa una
+base de datos H2 en memoria y se desactivan las llamadas reales a OpenAI y a \texttt{yt-dlp}
+mediante propiedades de configuración. Esto permite verificar la lógica del sistema de forma
+rápida y reproducible.
+
+Las pruebas cubren, entre otros aspectos, la validación de URLs de YouTube, el comportamiento del
+procesamiento simulado, la cancelación de trabajos y las consultas de capítulos y conceptos. En el
+estado actual, la suite se compone de 19 pruebas que se ejecutan correctamente.
+
+% TODO: añadir tabla con el listado de pruebas (clase, qué valida, resultado).
+
+\section{Validación funcional}
+
+Además de las pruebas automáticas, se ha validado el flujo completo de forma manual: procesar un
+vídeo de YouTube, comprobar la generación de capítulos y conceptos con marcas de tiempo
+coherentes, realizar preguntas al asistente (globales y concretas) y verificar los saltos al
+minuto exacto del vídeo. También se han validado los escenarios de la clasificación automática de
+asignaturas:
+
+\begin{itemize}
+  \item Vídeo de un canal ya asociado a una asignatura $\rightarrow$ se asigna por canal.
+  \item Vídeo de un canal nuevo con temática parecida a una asignatura existente $\rightarrow$ se
+        asigna por similitud semántica.
+  \item Vídeo sin coincidencias $\rightarrow$ se crea una asignatura nueva.
+  \item Cambio manual de la asignatura $\rightarrow$ desaparece la marca de ``sugerencia'' y
+        persiste tras recargar.
+\end{itemize}
+
+\section{Medición de tiempos}
+
+Para localizar los cuellos de botella del procesamiento, la clasificación automática registra el
+tiempo de cada fase (obtención de metadatos del canal, coincidencia por canal, generación del
+\textit{embedding} del vídeo, carga o generación de \textit{embeddings} de asignaturas, cálculo de
+similitud y asociación final). Estas medidas permiten decidir dónde optimizar antes de modificar la
+lógica.
+
+% TODO: incluir una tabla/gráfico con tiempos reales medidos sobre varios vídeos (canal, semántica
+% y nueva) una vez ejecutado en el entorno con base de datos y clave de OpenAI.
+
+\section{Discusión de resultados}
+
+Los resultados confirman que el sistema cumple los objetivos planteados: transcribe el vídeo,
+lo indexa, genera capítulos y conceptos, responde preguntas con referencias al minuto exacto y
+sugiere automáticamente la asignatura. Las principales fuentes de latencia son las llamadas a
+servicios externos (descarga con \texttt{yt-dlp} y peticiones a OpenAI), lo que orienta el trabajo
+futuro hacia su optimización (véase el capítulo~\ref{cap:conclusiones}).

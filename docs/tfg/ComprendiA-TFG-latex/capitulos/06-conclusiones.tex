@@ -1,0 +1,60 @@
+\chapter{Conclusiones y líneas futuras}
+\label{cap:conclusiones}
+
+\section{Conclusiones}
+
+El proyecto ha alcanzado su objetivo general: se ha diseñado e implementado una aplicación web
+que transforma vídeos de YouTube en material de estudio estructurado y consultable. Repasando los
+objetivos específicos planteados en la introducción:
+
+\begin{itemize}
+  \item Se obtiene la transcripción de forma eficiente, priorizando los subtítulos de YouTube y
+        recurriendo a Whisper solo cuando es necesario.
+  \item El contenido se indexa mediante \textit{embeddings}, lo que habilita la búsqueda semántica
+        por fragmentos.
+  \item Se generan automáticamente capítulos y conceptos clave con marcas de tiempo coherentes.
+  \item El asistente conversacional responde preguntas sobre el vídeo con memoria corta del
+        diálogo y referencias al minuto exacto.
+  \item Las clases se organizan en asignaturas y el sistema sugiere automáticamente la asignatura
+        de cada vídeo nuevo.
+  \item La interfaz integra reproductor, capítulos, conceptos y chat en una sola pantalla.
+\end{itemize}
+
+Más allá del cumplimiento de los requisitos, el trabajo me ha permitido integrar en un sistema
+real un conjunto de tecnologías actuales —transcripción automática, \textit{embeddings},
+búsqueda semántica y modelos de lenguaje— y enfrentarme a problemas propios de la ingeniería del
+software, como el procesamiento asíncrono, la degradación controlada ante fallos de servicios
+externos y la consistencia de los datos.
+
+\subsection{Orientación social}
+
+ComprendiA contribuye a un acceso más equitativo al conocimiento: permite navegar las clases por
+conceptos en lugar de verlas completas, favorece el aprendizaje autónomo y ayuda a estudiantes
+con ritmos o necesidades distintas. En este sentido, el proyecto se alinea con los Objetivos de
+Desarrollo Sostenible relativos a la educación de calidad (ODS~4), la reducción de las
+desigualdades (ODS~10) y la innovación (ODS~9).
+
+\section{Líneas futuras}
+
+El sistema es un prototipo funcional con margen claro de evolución. Las principales líneas de
+trabajo futuro son:
+
+\begin{itemize}
+  \item \textbf{Integración con plataformas educativas (LMS).} Conectar ComprendiA con Moodle,
+        Blackboard u otros sistemas para procesar directamente las clases del entorno
+        universitario.
+  \item \textbf{Asistente en tiempo real.} Llevar también el chat a WebSockets, con respuesta en
+        \textit{streaming} (token a token), para una experiencia conversacional más inmediata. El
+        progreso del análisis ya se transmite por WebSocket; faltaría extenderlo al asistente.
+  \item \textbf{Gestión multiusuario.} Añadir autenticación y perfiles para soportar varios
+        estudiantes y profesores.
+  \item \textbf{Optimización del procesamiento.} Reducir la latencia de las llamadas externas
+        (reutilizar la consulta de \texttt{yt-dlp}, cachear \textit{embeddings} de asignaturas,
+        paralelizar fases) a partir de los tiempos medidos.
+  \item \textbf{Mejora de la clasificación.} Umbral de similitud configurable, sugerencia también
+        del profesor y refinamiento del aprendizaje del canal.
+  \item \textbf{Reproductor enriquecido.} Marcar sobre la barra de progreso los capítulos y
+        fragmentos analizados, sincronizando la posición del vídeo con la transcripción.
+\end{itemize}
+
+% TODO: si procede, mencionar el contexto del programa TALENT 25-26 y el recorrido del proyecto.

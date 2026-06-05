@@ -1,0 +1,100 @@
+\chapter{Especificación de requisitos}
+\label{cap:requisitos}
+
+Este capítulo describe qué debe hacer el sistema, con independencia de cómo se implementa.
+Se identifican los actores, los requisitos funcionales, los requisitos no funcionales y los
+casos de uso principales.
+
+\section{Actores}
+
+\begin{itemize}
+  \item \textbf{Estudiante (usuario).} Único actor humano. Procesa vídeos, consulta clases,
+        organiza asignaturas e interactúa con el asistente. En esta versión no existe gestión
+        multiusuario, por lo que se asume un único perfil.
+  \item \textbf{Servicios externos.} YouTube (origen del vídeo y subtítulos, vía \texttt{yt-dlp})
+        y la API de OpenAI (Whisper, \textit{embeddings} y modelo de lenguaje). No son actores en
+        el sentido clásico, pero condicionan el comportamiento del sistema.
+\end{itemize}
+
+\section{Requisitos funcionales}
+
+\begin{longtable}{p{2cm}p{11.5cm}}
+  \toprule
+  \textbf{ID} & \textbf{Descripción} \\
+  \midrule
+  \endhead
+  RF-01 & El sistema debe aceptar la URL de un vídeo de YouTube y procesarlo de forma asíncrona,
+          informando del estado (descarga, transcripción, guardado, \textit{embeddings}, análisis). \\
+  RF-02 & El sistema debe obtener la transcripción del vídeo, reutilizando los subtítulos de
+          YouTube si existen y recurriendo a Whisper en caso contrario. \\
+  RF-03 & El sistema debe dividir la transcripción en fragmentos y generar un \textit{embedding}
+          por fragmento. \\
+  RF-04 & El sistema debe generar automáticamente capítulos navegables y conceptos clave, cada
+          uno con su marca de tiempo. \\
+  RF-05 & El usuario debe poder reproducir el vídeo y saltar a un instante concreto desde los
+          capítulos, conceptos o respuestas del asistente. \\
+  RF-06 & El sistema debe permitir realizar búsquedas semánticas sobre el contenido del vídeo. \\
+  RF-07 & El asistente debe responder preguntas sobre el vídeo mediante RAG, manteniendo una
+          memoria corta del diálogo para resolver referencias implícitas. \\
+  RF-08 & El usuario debe poder editar los metadatos de la clase (asignatura, profesor, fecha) y
+          marcarla como completada. \\
+  RF-09 & El sistema debe organizar las clases en asignaturas y permitir crear, editar y eliminar
+          asignaturas. \\
+  RF-10 & Al terminar el análisis, el sistema debe sugerir automáticamente una asignatura para el
+          vídeo (por canal de YouTube o por similitud semántica, creando una nueva si no hay
+          candidata) y marcarla como sugerencia editable. \\
+  RF-11 & El usuario debe poder cambiar manualmente la asignatura sugerida, momento en el que deja
+          de considerarse sugerencia. \\
+  RF-12 & El sistema debe permitir eliminar una clase y todos sus datos asociados. \\
+  \bottomrule
+\end{longtable}
+
+\section{Requisitos no funcionales}
+
+\begin{longtable}{p{2cm}p{11.5cm}}
+  \toprule
+  \textbf{ID} & \textbf{Descripción} \\
+  \midrule
+  \endhead
+  RNF-01 & \textbf{Rendimiento.} El procesamiento debe priorizar los subtítulos sobre Whisper para
+           reducir tiempo y coste. La interfaz no debe bloquearse durante el procesamiento. \\
+  RNF-02 & \textbf{Robustez.} Si un servicio externo (OpenAI, \textit{yt-dlp}) falla, el sistema
+           debe degradar de forma controlada sin interrumpir el procesamiento. \\
+  RNF-03 & \textbf{Usabilidad.} La interfaz debe ser clara, en modo oscuro, integrando reproductor,
+           capítulos, conceptos y chat en una sola pantalla. \\
+  RNF-04 & \textbf{Mantenibilidad.} Todo el código (clases, métodos, variables y comentarios) se
+           escribe en español, con una separación clara entre capas. \\
+  RNF-05 & \textbf{Coste.} Se emplean modelos de coste contenido (\texttt{gpt-4o-mini},
+           \texttt{text-embedding-3-small}) y se evita recalcular \textit{embeddings} ya disponibles. \\
+  RNF-06 & \textbf{Portabilidad de datos.} Los \textit{embeddings} se almacenan en PostgreSQL con
+           \texttt{pgvector}, sin introducir una base de datos vectorial adicional. \\
+  \bottomrule
+\end{longtable}
+
+\section{Casos de uso}
+
+% TODO: añadir el diagrama de casos de uso (UML) en img/casos-uso.png
+La figura de casos de uso (pendiente) resume las interacciones del estudiante con el sistema. Los
+casos de uso principales son: \textit{Procesar vídeo}, \textit{Consultar clase}, \textit{Preguntar
+al asistente}, \textit{Buscar en el vídeo}, \textit{Gestionar asignaturas} y \textit{Editar
+metadatos de clase}.
+
+\subsection{Caso de uso detallado: Procesar vídeo}
+
+\begin{itemize}
+  \item \textbf{Actor:} Estudiante.
+  \item \textbf{Precondición:} Disponer de la URL de un vídeo público de YouTube.
+  \item \textbf{Flujo principal:}
+    \begin{enumerate}
+      \item El estudiante introduce la URL y solicita el análisis.
+      \item El sistema valida la URL y lanza el procesamiento asíncrono.
+      \item El sistema obtiene la transcripción, genera fragmentos y \textit{embeddings}, y produce
+            capítulos y conceptos.
+      \item El sistema sugiere una asignatura para la clase.
+      \item Al completarse, se abre la pantalla de la clase.
+    \end{enumerate}
+  \item \textbf{Flujos alternativos:} URL no válida (se informa del error); cancelación por el
+        usuario (se eliminan los datos parciales); fallo de un servicio externo (se aplica la
+        alternativa local correspondiente).
+  \item \textbf{Postcondición:} La clase queda persistida y consultable.
+\end{itemize}

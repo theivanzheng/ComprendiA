@@ -1,0 +1,70 @@
+\chapter{Introducción}
+\label{cap:introduccion}
+
+\section{Justificación y motivación}
+
+El vídeo se ha consolidado como uno de los principales soportes de aprendizaje. Plataformas
+como YouTube concentran una enorme cantidad de clases, charlas y tutoriales, pero el formato
+audiovisual presenta una limitación clara para el estudio: es lineal y poco consultable. Para
+localizar un concepto concreto dentro de una grabación de una hora, el estudiante debe recordar
+aproximadamente en qué momento se trató y desplazarse manualmente por la barra de
+reproducción. A diferencia de un texto, un vídeo no se puede buscar, ni resumir, ni hojear con
+facilidad.
+
+Existen herramientas parciales —generación de subtítulos, capítulos manuales o resúmenes
+automáticos—, pero rara vez se integran en un único flujo pensado para el estudio. Lo habitual
+es que el alumno combine varias aplicaciones y siga sin poder \textit{preguntar} directamente
+al contenido del vídeo.
+
+ComprendiA nace para cubrir ese hueco: convertir cualquier vídeo de YouTube en material de
+estudio estructurado y consultable. La aplicación transcribe la grabación, la analiza para
+extraer capítulos y conceptos clave, y ofrece un asistente conversacional capaz de responder
+preguntas sobre el contenido citando el momento exacto del vídeo. Además, organiza las clases
+en asignaturas y reduce el trabajo administrativo sugiriendo automáticamente a qué asignatura
+pertenece cada nueva grabación.
+
+\section{Objetivos}
+
+\subsection{Objetivo general}
+
+Diseñar e implementar una aplicación web que permita transformar vídeos de YouTube en material
+de estudio estructurado, ofreciendo transcripción, análisis automático del contenido y consulta
+mediante un asistente conversacional basado en recuperación semántica.
+
+\subsection{Objetivos específicos}
+
+\begin{itemize}
+  \item Obtener la transcripción de un vídeo de YouTube de forma eficiente, priorizando los
+        subtítulos existentes y recurriendo a un modelo de reconocimiento del habla cuando sea
+        necesario.
+  \item Indexar el contenido mediante \textit{embeddings} para permitir búsqueda semántica por
+        fragmentos.
+  \item Generar automáticamente capítulos navegables y conceptos clave con sus marcas de tiempo.
+  \item Implementar un asistente conversacional (RAG) que responda preguntas sobre el vídeo con
+        memoria corta del diálogo y referencias al momento concreto de la grabación.
+  \item Organizar las clases en asignaturas y sugerir automáticamente la asignatura de cada
+        vídeo nuevo mediante criterios de canal y de similitud semántica.
+  \item Construir una interfaz web clara que integre reproductor, capítulos, conceptos y chat.
+\end{itemize}
+
+\section{Alcance del proyecto}
+
+El proyecto abarca el desarrollo completo de la aplicación, tanto del \textit{backend} (API,
+procesamiento y persistencia) como del \textit{frontend} (interfaz de usuario). Se contempla el
+procesamiento de vídeos públicos de YouTube y la gestión de clases y asignaturas por parte de un
+único perfil de usuario.
+
+Quedan fuera del alcance de esta primera versión la gestión multiusuario con autenticación, el
+procesamiento de fuentes de vídeo distintas a YouTube y el despliegue en un entorno de
+producción con alta disponibilidad. Estos puntos se recogen como líneas futuras en el
+capítulo~\ref{cap:conclusiones}.
+
+\section{Estructura de la memoria}
+
+El resto de la memoria se organiza como sigue. El capítulo~\ref{cap:estado-arte} revisa el
+estado del arte de las tecnologías implicadas (transcripción automática, \textit{embeddings},
+búsqueda semántica y modelos de lenguaje). El capítulo~\ref{cap:requisitos} recoge la
+especificación de requisitos del sistema. El capítulo~\ref{cap:desarrollo} describe la
+metodología, la arquitectura y la implementación. El capítulo~\ref{cap:pruebas} presenta las
+pruebas realizadas y sus resultados. Por último, el capítulo~\ref{cap:conclusiones} expone las
+conclusiones y las líneas de trabajo futuras.
