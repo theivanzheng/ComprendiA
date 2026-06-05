@@ -5,7 +5,6 @@ import io.smallrye.config.ConfigSourceFactory;
 import io.smallrye.config.ConfigValue;
 import org.eclipse.microprofile.config.spi.ConfigSource;
 
-import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -55,35 +54,70 @@ public class DatasourceUrlConfigSourceFactory implements ConfigSourceFactory {
         return OptionalInt.of(290);
     }
 
+    // Parseo MANUAL y tolerante (no usa java.net.URI, que devuelve host=null si la
+    // contraseña tiene caracteres especiales). Formato esperado:
+    //   postgresql://usuario:password@host[:puerto]/db[?query]
     private Map<String, String> parsear(String databaseUrl) {
-        URI uri = URI.create(databaseUrl);
+        String s = databaseUrl.trim();
+        int esquema = s.indexOf("://");
+        if (esquema < 0) {
+            throw new IllegalArgumentException("DATABASE_URL sin esquema postgresql://");
+        }
+        String resto = s.substring(esquema + 3);
 
+        // Credenciales: hasta el último '@' (el host nunca contiene '@')
         String usuario = null;
         String password = null;
-        String userInfo = uri.getUserInfo();
-        if (userInfo != null) {
-            int sep = userInfo.indexOf(':');
-            usuario = sep >= 0 ? userInfo.substring(0, sep) : userInfo;
-            password = sep >= 0 ? userInfo.substring(sep + 1) : null;
-            usuario = URLDecoder.decode(usuario, StandardCharsets.UTF_8);
-            if (password != null) password = URLDecoder.decode(password, StandardCharsets.UTF_8);
+        int arroba = resto.lastIndexOf('@');
+        if (arroba >= 0) {
+            String credenciales = resto.substring(0, arroba);
+            resto = resto.substring(arroba + 1);
+            int dosPuntos = credenciales.indexOf(':');
+            if (dosPuntos >= 0) {
+                usuario = credenciales.substring(0, dosPuntos);
+                password = credenciales.substring(dosPuntos + 1);
+            } else {
+                usuario = credenciales;
+            }
+            usuario = decodificar(usuario);
+            if (password != null) password = decodificar(password);
         }
 
-        String host = uri.getHost();
-        int puerto = uri.getPort();
-        String db = uri.getPath() == null ? "" : uri.getPath();
-        String query = limpiarQuery(uri.getQuery());
+        // resto = host[:puerto][/db][?query]
+        String query = null;
+        int interrogacion = resto.indexOf('?');
+        if (interrogacion >= 0) {
+            query = resto.substring(interrogacion + 1);
+            resto = resto.substring(0, interrogacion);
+        }
+        String db = "";
+        int barra = resto.indexOf('/');
+        if (barra >= 0) {
+            db = resto.substring(barra); // incluye la '/'
+            resto = resto.substring(0, barra);
+        }
+        String hostPuerto = resto; // host[:puerto]
+        if (hostPuerto.isBlank()) {
+            throw new IllegalArgumentException("DATABASE_URL sin host");
+        }
 
-        String jdbcUrl = "jdbc:postgresql://" + host
-            + (puerto > 0 ? ":" + puerto : "")
-            + db
-            + (query.isEmpty() ? "" : "?" + query);
+        String jdbcQuery = limpiarQuery(query);
+        String jdbcUrl = "jdbc:postgresql://" + hostPuerto + db
+            + (jdbcQuery.isEmpty() ? "" : "?" + jdbcQuery);
 
         Map<String, String> propiedades = new HashMap<>();
         propiedades.put("quarkus.datasource.jdbc.url", jdbcUrl);
-        if (usuario != null) propiedades.put("quarkus.datasource.username", usuario);
+        if (usuario != null && !usuario.isBlank()) propiedades.put("quarkus.datasource.username", usuario);
         if (password != null) propiedades.put("quarkus.datasource.password", password);
         return propiedades;
+    }
+
+    private String decodificar(String valor) {
+        try {
+            return URLDecoder.decode(valor, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return valor; // si no es URL-encoding válido, usar tal cual
+        }
     }
 
     // Conserva sslmode; descarta channelBinding (el driver pgjdbc no lo soporta y rompía la conexión)
