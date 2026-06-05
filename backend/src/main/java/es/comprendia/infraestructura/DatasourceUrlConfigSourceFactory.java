@@ -5,8 +5,6 @@ import io.smallrye.config.ConfigSourceFactory;
 import io.smallrye.config.ConfigValue;
 import org.eclipse.microprofile.config.spi.ConfigSource;
 
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -36,6 +34,12 @@ public class DatasourceUrlConfigSourceFactory implements ConfigSourceFactory {
 
         try {
             Map<String, String> propiedades = parsear(raw.trim());
+            // Diagnóstico SIN exponer la contraseña (solo longitud y url sin credenciales)
+            System.out.println("[Datasource] Conexión derivada de DATABASE_URL -> url="
+                + propiedades.get("quarkus.datasource.jdbc.url")
+                + " | user=" + propiedades.get("quarkus.datasource.username")
+                + " | passLen=" + (propiedades.containsKey("quarkus.datasource.password")
+                    ? propiedades.get("quarkus.datasource.password").length() : 0));
             return List.of(new ConfigSource() {
                 @Override public Map<String, String> getProperties() { return propiedades; }
                 @Override public Set<String> getPropertyNames() { return propiedades.keySet(); }
@@ -112,12 +116,26 @@ public class DatasourceUrlConfigSourceFactory implements ConfigSourceFactory {
         return propiedades;
     }
 
+    // Decodifica SOLO secuencias %XX. NO convierte '+' en espacio (URLDecoder sí lo hace,
+    // lo que corrompía contraseñas con '+'). Si no hay '%', devuelve el valor tal cual.
     private String decodificar(String valor) {
-        try {
-            return URLDecoder.decode(valor, StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            return valor; // si no es URL-encoding válido, usar tal cual
+        if (valor == null || valor.indexOf('%') < 0) return valor;
+        StringBuilder sb = new StringBuilder(valor.length());
+        for (int i = 0; i < valor.length(); i++) {
+            char c = valor.charAt(i);
+            if (c == '%' && i + 2 < valor.length()) {
+                try {
+                    int codigo = Integer.parseInt(valor.substring(i + 1, i + 3), 16);
+                    sb.append((char) codigo);
+                    i += 2;
+                    continue;
+                } catch (NumberFormatException ignorado) {
+                    // no era una secuencia %XX válida: dejar el '%' literal
+                }
+            }
+            sb.append(c);
         }
+        return sb.toString();
     }
 
     // Conserva sslmode; descarta channelBinding (el driver pgjdbc no lo soporta y rompía la conexión)
