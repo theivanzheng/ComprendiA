@@ -12,4 +12,6 @@ export interface VideoResumen {
   idAsignatura: number | null;
   idProfesor: number | null;
   resumen: string | null;
+  asignaturaSugerida: boolean;
+  criterioAsignacion: string | null;
 }

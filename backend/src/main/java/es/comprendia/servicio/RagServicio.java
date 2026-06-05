@@ -2,7 +2,9 @@ package es.comprendia.servicio;
 
 import es.comprendia.dto.CapituloVideoDTO;
 import es.comprendia.dto.ConceptoClaveVideoDTO;
+import es.comprendia.dto.ConsultaConversacionDTO;
 import es.comprendia.dto.FragmentoDTO;
+import es.comprendia.dto.MensajeChatDTO;
 import es.comprendia.dto.RespuestaRagDTO;
 import es.comprendia.dto.ResultadoBusquedaDTO;
 import es.comprendia.entidad.Video;
@@ -90,6 +92,64 @@ public class RagServicio {
 
         String respuesta = chatGptServicio.completar(contexto, pregunta);
         return new RespuestaRagDTO(respuesta, fuentes);
+    }
+
+    /**
+     * Respuesta conversacional sobre el vídeo. Usa el historial reciente (memoria corta enviada
+     * por el frontend, no persistida) y una entidad reciente para resolver referencias implícitas.
+     * El historial NO se guarda en backend.
+     */
+    @Transactional
+    public RespuestaRagDTO responderConversacion(Long videoId, ConsultaConversacionDTO consulta) {
+        Video video = videoRepositorio.findById(videoId);
+        if (video == null) {
+            throw new NotFoundException("Vídeo con id " + videoId + " no encontrado");
+        }
+
+        String pregunta = consulta.pregunta();
+        String entidadReciente = consulta.entidadReciente();
+        List<MensajeChatDTO> historial = consulta.historial() == null ? List.of() : consulta.historial();
+
+        // Las preguntas claramente globales (resumen, de qué trata) no necesitan hilo conversacional.
+        if (esPreguntaGlobal(pregunta)) {
+            return responderGlobal(video, pregunta);
+        }
+
+        // Recuperación semántica contextual: si la pregunta es ambigua/corta, se enriquece la
+        // búsqueda con la entidad reciente para que "el móvil" recupere los fragmentos del referente.
+        String textoBusqueda = construirTextoBusqueda(pregunta, entidadReciente);
+        List<Double> vectorPregunta = embeddingServicio.generarEmbedding(textoBusqueda);
+        String embeddingStr = vectorPregunta.toString().replace(" ", "");
+        List<ResultadoBusquedaDTO> fuentes = fragmentoRepositorio.buscarPorSimilitud(videoId, embeddingStr, NUM_FRAGMENTOS);
+
+        if (fuentes.isEmpty()) {
+            return new RespuestaRagDTO("Todavía no tengo la transcripción procesada para responder sobre este vídeo.", fuentes);
+        }
+
+        String contexto = construirContexto(fuentes);
+        LOG.infof("[RAG] Conversacion. %d fragmentos, %d turnos previos, entidad='%s' para: %s",
+            fuentes.size(), historial.size(), entidadReciente, pregunta);
+
+        String respuesta = chatGptServicio.completarConversacion(contexto, pregunta, historial, entidadReciente);
+        return new RespuestaRagDTO(respuesta, fuentes);
+    }
+
+    /**
+     * Decide el texto que se usa para la búsqueda semántica. Si la pregunta es corta o parece una
+     * referencia implícita (poco contenido propio), se le añade la entidad reciente.
+     */
+    private String construirTextoBusqueda(String pregunta, String entidadReciente) {
+        if (entidadReciente == null || entidadReciente.isBlank()) {
+            return pregunta;
+        }
+        String normalizada = normalizar(pregunta);
+        // Heurística: preguntas cortas o con pronombres/alusiones ("el móvil", "ese", "eso",
+        // "y después", "cuánto costaba") se benefician de anclar la búsqueda a la entidad reciente.
+        boolean esAmbigua = normalizada.split("\\s+").length <= 6
+            || contiene(normalizada, "ese ", "esa ", "eso", "este ", "esta ", "esos ", "esas ",
+                "el movil", "lo anterior", "y despues", "y luego", "antes", "tambien",
+                "cuanto", "cuando", "donde", "lo mismo", "y que");
+        return esAmbigua ? pregunta + " " + entidadReciente : pregunta;
     }
 
     private RespuestaRagDTO responderGlobal(Video video, String pregunta) {

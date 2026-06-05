@@ -26,6 +26,13 @@ public class DatasourceUrlConfigSourceFactory implements ConfigSourceFactory {
 
     @Override
     public Iterable<ConfigSource> getConfigSources(ConfigSourceContext context) {
+        // Bajo el perfil de test se usa la base de datos H2 en memoria definida en
+        // src/test/resources/application.properties. No debemos sobrescribirla con DATABASE_URL.
+        List<String> perfiles = context.getProfiles();
+        if (perfiles != null && perfiles.contains("test")) {
+            return Collections.emptyList();
+        }
+
         ConfigValue valor = context.getValue("DATABASE_URL");
         String raw = valor != null ? valor.getValue() : null;
         if (raw == null || raw.isBlank()) {

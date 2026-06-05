@@ -205,6 +205,9 @@
                         (click)="alternarSelectorMetadato('asignatura')">
                         <strong>Asignatura:</strong>
                         <span>{{ asignaturaClase }}</span>
+                        @if (asignaturaSugerida) {
+                          <span class="sugerida-tag">(sugerencia)</span>
+                        }
                         <i aria-hidden="true"></i>
                       </button>
 
@@ -281,6 +284,18 @@
                       <strong>Fecha:</strong>
                       <input type="date" [(ngModel)]="fechaClase" (change)="guardarMetadataClase()" aria-label="Fecha de la clase" />
                     </label>
+
+                    @if (youtubeIdClase) {
+                      <a
+                        class="class-meta-pill source-pill"
+                        [href]="urlYoutubeClase"
+                        target="_blank"
+                        rel="noopener"
+                        aria-label="Abrir el vídeo original en YouTube">
+                        <strong>Fuente:</strong>
+                        <span>YouTube ↗</span>
+                      </a>
+                    }
                   </div>
                 </div>
               </div>
@@ -559,28 +574,41 @@
               }
             </div>
 
-            <div class="chat-thread">
-              @if (respuestaRag) {
-                <div class="message message-user">{{ preguntaEnviada }}</div>
-                <div class="message message-ai">
-                  <p>{{ respuestaRag.respuesta }}</p>
-
-                  @if (respuestaRag.fuentes.length > 0) {
-                    <div class="momentos-relacionados">
-                      <span class="momentos-label">Momentos relacionados</span>
-                      <div class="momentos-chips">
-                        @for (fuente of respuestaRag.fuentes; track $index) {
-                          <button class="momento-chip" type="button" (click)="saltarATiempo(fuente.tiempoInicio)">
-                            {{ formatearTiempo(fuente.tiempoInicio) }} – {{ formatearTiempo(fuente.tiempoFin) }}
-                          </button>
-                        }
-                      </div>
-                    </div>
-                  }
-                </div>
-              } @else {
+            <div class="chat-thread" #hiloChat>
+              @if (mensajesChat.length === 0) {
                 <div class="message message-ai">
                   <p>Selecciona una sugerencia o pregunta por cualquier concepto de la clase.</p>
+                </div>
+              }
+
+              @for (mensaje of mensajesChat; track $index) {
+                @if (mensaje.rol === 'user') {
+                  <div class="message message-user">{{ mensaje.contenido }}</div>
+                } @else {
+                  <div class="message message-ai">
+                    <p>{{ mensaje.contenido }}</p>
+
+                    @if (mensaje.fuentes && mensaje.fuentes.length > 0) {
+                      <div class="momentos-relacionados">
+                        <span class="momentos-label">Momentos relacionados</span>
+                        <div class="momentos-chips">
+                          @for (fuente of mensaje.fuentes; track $index) {
+                            <button class="momento-chip" type="button" (click)="saltarATiempo(fuente.tiempoInicio)">
+                              {{ formatearTiempo(fuente.tiempoInicio) }} – {{ formatearTiempo(fuente.tiempoFin) }}
+                            </button>
+                          }
+                        </div>
+                      </div>
+                    }
+                  </div>
+                }
+              }
+
+              @if (cargandoBusqueda) {
+                <div class="message message-ai message-typing">
+                  <span class="typing-dots" aria-label="Escribiendo">
+                    <i></i><i></i><i></i>
+                  </span>
                 </div>
               }
 
@@ -594,9 +622,9 @@
                 type="text"
                 [(ngModel)]="pregunta"
                 placeholder="Introduce tu mensaje"
-                (keydown.enter)="buscarEnVideo()"
+                (keydown.enter)="enviarMensajeChat()"
               />
-              <button type="button" (click)="buscarEnVideo()" [disabled]="cargandoBusqueda || !videoSeleccionado">
+              <button type="button" (click)="enviarMensajeChat()" [disabled]="cargandoBusqueda || !videoSeleccionado">
                 @if (cargandoBusqueda) {
                   <span class="send-bubbles" aria-label="Procesando">
                     <i></i>
@@ -647,6 +675,28 @@
               <article class="asignatura-card" (click)="cargarDetalleAsignatura(asignatura.id)">
                 <div class="asignatura-card-top">
                   <span class="asignatura-badge">{{ asignatura.numeroClases }} clases</span>
+
+                  <div class="asignatura-card-menu-wrap" (click)="$event.stopPropagation()">
+                    <button
+                      class="asignatura-menu-btn asignatura-card-menu-btn"
+                      type="button"
+                      aria-label="Opciones de asignatura"
+                      [class.activo]="menuAsignaturaCardId === asignatura.id"
+                      (click)="alternarMenuAsignaturaCard(asignatura.id, $event)">
+                      <span></span><span></span><span></span>
+                    </button>
+
+                    @if (menuAsignaturaCardId === asignatura.id) {
+                      <div class="menu-contextual asignatura-menu-dropdown">
+                        <button class="menu-btn" type="button" (click)="editarAsignaturaDesdeCard(asignatura, $event)">
+                          Editar asignatura
+                        </button>
+                        <button class="menu-btn menu-btn-eliminar" type="button" (click)="eliminarAsignaturaDesdeCard(asignatura, $event)">
+                          Eliminar asignatura
+                        </button>
+                      </div>
+                    }
+                  </div>
                 </div>
                 <h2 class="asignatura-nombre">{{ asignatura.nombre }}</h2>
                 @if (asignatura.profesor) {
@@ -1119,7 +1169,7 @@
 }
 
 <!-- Modal: Editar asignatura -->
-@if (modalEditarAsignatura && asignaturaDetalle) {
+@if (modalEditarAsignatura && asignaturaObjetivo) {
   <div class="modal-overlay" (click)="cerrarModalEditarAsignatura()">
     <div class="modal-panel" (click)="$event.stopPropagation()">
       <h2 class="modal-titulo">Editar asignatura</h2>
@@ -1153,22 +1203,22 @@
 }
 
 <!-- Modal: Eliminar asignatura -->
-@if (modalEliminarAsignatura && asignaturaDetalle) {
+@if (modalEliminarAsignatura && asignaturaObjetivo) {
   <div class="modal-overlay" (click)="cerrarModalEliminarAsignatura()">
     <div class="modal-panel modal-peligro" (click)="$event.stopPropagation()">
       <h2 class="modal-titulo">Eliminar asignatura</h2>
       <p class="modal-alerta">
-        Esta acción eliminará permanentemente <strong>{{ asignaturaDetalle.nombre }}</strong> y todas sus clases asociadas
+        Esta acción eliminará permanentemente <strong>{{ asignaturaObjetivo.nombre }}</strong> y todas sus clases asociadas
         (fragmentos, capítulos, conceptos y embeddings). No se puede deshacer.
       </p>
 
       <label class="modal-label">
-        Escribe <strong>{{ asignaturaDetalle.nombre }}</strong> para confirmar:
+        Escribe <strong>{{ asignaturaObjetivo.nombre }}</strong> para confirmar:
         <input
           class="modal-input modal-input-peligro"
           type="text"
           [(ngModel)]="eliminarAsignaturaConfirmacion"
-          [placeholder]="asignaturaDetalle.nombre"
+          [placeholder]="asignaturaObjetivo.nombre"
         />
       </label>
 
@@ -1182,7 +1232,7 @@
           class="modal-btn-eliminar"
           type="button"
           (click)="confirmarEliminarAsignatura()"
-          [disabled]="eliminandoAsignatura || eliminarAsignaturaConfirmacion !== asignaturaDetalle.nombre"
+          [disabled]="eliminandoAsignatura || eliminarAsignaturaConfirmacion !== asignaturaObjetivo.nombre"
         >
           @if (eliminandoAsignatura) { Eliminando… } @else { Eliminar definitivamente }
         </button>

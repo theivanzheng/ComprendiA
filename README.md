@@ -15,6 +15,11 @@ Aplicación educativa que transcribe vídeos de YouTube, genera embeddings por f
 - Las tarjetas de la home y de clases relacionadas usan thumbnails reales de YouTube con overlay oscuro para mantener legibilidad.
 - El chat diferencia mejor entre preguntas globales de resumen y preguntas concretas sobre fragmentos, usando contexto global de capítulos, conceptos y fragmentos representativos cuando corresponde.
 - El input del chat se limpia al enviar y el botón de envío muestra una animación de procesamiento.
+- **Chat conversacional del vídeo:** el asistente mantiene un hilo con memoria corta (últimas 5–10 interacciones, solo en frontend, no persistido) que resuelve referencias implícitas ("el móvil", "y después?"). Nuevo endpoint `POST /api/transcripciones/{id}/conversar` que recibe el historial reciente y una entidad de contexto para enriquecer la búsqueda semántica.
+- **Enlace al vídeo original de YouTube:** pill discreto "Fuente: YouTube ↗" en la cabecera de la clase.
+- **Menú de tres puntos en las tarjetas de `Mis Cursos`:** editar y eliminar asignatura desde el grid (reutilizando el modal de edición y el flujo de borrado con confirmación por nombre).
+- **Autoasignación sugerida de asignatura:** al terminar el análisis, el sistema asigna automáticamente una asignatura (por canal de YouTube o similitud semántica, creando una nueva si no hay candidata) y la marca como sugerencia. El pill muestra `Asignatura: X (sugerencia)`; al cambiarla a mano deja de ser sugerencia. "sugerencia" es solo metadato visual, nunca forma parte del nombre real.
+- **Logs de tiempos en la clasificación:** cada fase de la autoasignación (`[Clasificacion][Tiempo]`) registra su duración para localizar cuellos de botella.
 
 ## Estructura funcional prevista
 
@@ -220,6 +225,7 @@ curl "http://localhost:8080/api/transcripciones/{id}/buscar?pregunta=¿De qué t
 | POST | `/api/transcripciones/{id}/conceptos` | Crear un concepto manual |
 | GET | `/api/transcripciones/{id}/buscar?pregunta=...` | Búsqueda semántica |
 | GET | `/api/transcripciones/{id}/responder?pregunta=...` | Respuesta del asistente ComprendiA con RAG |
+| POST | `/api/transcripciones/{id}/conversar` | Chat conversacional con memoria corta (`pregunta`, `historial`, `entidadReciente`) |
 | PATCH | `/api/capitulos/{id}` | Editar un capítulo |
 | DELETE | `/api/capitulos/{id}` | Eliminar un capítulo |
 | PATCH | `/api/conceptos/{id}` | Editar un concepto clave |
@@ -240,8 +246,8 @@ curl "http://localhost:8080/api/transcripciones/{id}/buscar?pregunta=¿De qué t
 | Entidad | Tabla | Campos principales | Relaciones |
 |---------|-------|--------------------|------------|
 | `Profesor` | `profesores` | nombre, email, fechaCreacion, fechaActualizacion | 1—N Asignatura, 1—N Video |
-| `Asignatura` | `asignaturas` | nombre, descripcion, profesor (texto compat.), fechaCreacion, fechaActualizacion | N—1 Profesor (`profesorObj`, principal); 1—N Video |
-| `Video` | `videos` | youtubeId, titulo, **resumen**, asignatura (texto compat.), profesor (texto compat.), fechaClase, completado, fuenteTranscripcion, fechaCreacion | N—1 Asignatura (`asignaturaObj`); N—1 Profesor (`profesorObj`, opcional) |
+| `Asignatura` | `asignaturas` | nombre, descripcion, profesor (texto compat.), fechaCreacion, fechaActualizacion, **canalYoutubeId**, **canalYoutubeNombre**, **palabrasClave**, **embeddingResumen** (JSON) | N—1 Profesor (`profesorObj`, principal); 1—N Video |
+| `Video` | `videos` | youtubeId, titulo, **resumen**, asignatura (texto compat.), profesor (texto compat.), fechaClase, completado, fuenteTranscripcion, fechaCreacion, **canalYoutubeId**, **canalYoutubeNombre**, **asignaturaSugerida**, **criterioAsignacion** (CANAL/SEMANTICA/MANUAL/NINGUNO) | N—1 Asignatura (`asignaturaObj`); N—1 Profesor (`profesorObj`, opcional) |
 | `CapituloVideo` | `capitulos_video` | titulo, descripcion, tiempoInicio, tiempoFin, ordenCapitulo, origen, **creadoManual**, **generadoPorIa** | N—1 Video |
 | `ConceptoClaveVideo` | `conceptos_clave_video` | nombre, definicion, tiempoInicio, **tiempoFin**, ordenConcepto, **creadoManual**, **generadoPorIa** | N—1 Video |
 | `FragmentoTranscripcion` | `fragmentos_transcripcion` | texto, tiempoInicio, tiempoFin, ordenFragmento, embedding (pgvector) | N—1 Video |
@@ -359,6 +365,36 @@ El objetivo es sustituir el embed básico de YouTube por un reproductor interact
 - Angular service que suscriba al progreso del reproductor y actualice el fragmento activo
 
 **Datos ya disponibles:** cada fragmento tiene `tiempoInicio` y `tiempoFin` en segundos, listos para calcular la posición proporcional sobre la barra.
+
+---
+
+## Próximas fases y pendientes (para la próxima sesión)
+
+### Pendientes inmediatos / verificación
+
+- **Conexión a la base de datos (Neon):** tras rotar la contraseña, queda **pendiente verificar** que `mvn quarkus:dev` conecta correctamente. El backend acepta `DATABASE_URL` en formato libpq (`postgresql://usuario:password@host/db?sslmode=require`) y la parsea `DatasourceUrlConfigSourceFactory`. ⚠️ Hay una incoherencia con la documentación de arriba (que muestra formato `jdbc:...?user=...&password=...`); conviene unificar el formato real esperado y dejarlo claro en `backend/.env.example`. Revisar el log `[Datasource] ... passLen=N` al arrancar.
+- **Validar autoasignación en vivo:** procesar (1) vídeo de canal ya asociado → match por CANAL, (2) canal nuevo con tema parecido → SEMANTICA, (3) vídeo totalmente nuevo → asignatura nueva; y comprobar que el pill muestra "(sugerencia)" y que al cambiar a mano desaparece y persiste.
+- **Revisar los logs de tiempos `[Clasificacion][Tiempo]`** para confirmar qué fase domina (sospechas: `yt-dlp` de canal y embeddings de OpenAI) antes de optimizar.
+
+### Optimización de la clasificación (cuando haya medidas)
+
+- Reutilizar la llamada a `yt-dlp` del título para obtener también el canal en una sola invocación (evitar la segunda llamada en `obtenerMetadatosCanal`).
+- Cachear/precalcular `embeddingResumen` de las asignaturas (hoy se calcula de forma perezosa la primera vez que se compara) y recalcularlo cuando cambie su nombre/descripción/palabras clave.
+- Considerar mover `embeddingResumen` a una columna `pgvector` (como los fragmentos) si el número de asignaturas crece, en lugar de JSON en TEXT.
+- Hacer la autoasignación asíncrona / fuera de la transacción del pipeline si añade latencia perceptible al "COMPLETADO".
+
+### Mejoras funcionales pendientes
+
+- **Sugerir también el profesor**: ya se copia el profesor de la asignatura sugerida cuando el vídeo no tiene uno; falta reflejar visualmente que el profesor es "sugerido" (hoy solo lo está la asignatura).
+- **Aprendizaje del canal**: afinar la regla de cuándo una asignatura "aprende" un `canalYoutubeId` (al asignar manualmente o por clasificación) para evitar arrastrar canales equivocados.
+- **Umbral semántico configurable** (`UMBRAL_SIMILITUD`, hoy fijo en 0.30) vía propiedad de configuración.
+- **Chat conversacional**: persistencia opcional del hilo, límite de tokens del contexto, y mejor extracción de entidades para referencias implícitas.
+- **Clases relacionadas**: implementar la sección real (clases de la misma asignatura con fechas cercanas), hoy con placeholders.
+
+### Calidad / infra
+
+- **Tests**: la autoasignación está deshabilitada en test (`comprendia.clasificacion.habilitada=false`) para no llamar a yt-dlp/OpenAI. Falta cobertura unitaria de `ClasificacionAsignaturaServicio` (coseno, match por canal, nombre sugerido) con dependencias simuladas.
+- **Budget de CSS** de `ng build`: `app.css` supera el presupuesto por defecto (el build de producción falla aunque `ng serve` funciona). Subir el límite en `angular.json` o dividir estilos.
 
 ---
 

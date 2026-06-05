@@ -1,4 +1,4 @@
-import { ChangeDetectorRef, Component, HostListener, OnDestroy, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';
 import { TranscripcionServicio, VideoMetadata, SolicitudAsignatura } from './servicios/transcripcion.servicio';
@@ -8,6 +8,7 @@ import { FragmentoVideo } from './modelos/fragmento-video';
 import { ResultadoBusqueda } from './modelos/resultado-busqueda';
 import { FaseTrabajo } from './modelos/estado-trabajo';
 import { RespuestaRag } from './modelos/respuesta-rag';
+import { MensajeChat } from './modelos/mensaje-chat';
 import { Asignatura } from './modelos/asignatura';
 import { AsignaturaDetalle } from './modelos/asignatura-detalle';
 import { ResultadoBusquedaAsignatura } from './modelos/resultado-busqueda-asignatura';
@@ -125,6 +126,28 @@ export class App implements OnInit, OnDestroy {
   protected fuentesExpandidas = false;
   protected preguntaEnviada = '';
 
+  // ── Chat conversacional (memoria corta SOLO en frontend, no se persiste) ─────
+  // Historial visible de la conversación. Se reinicia al salir de la clase.
+  protected mensajesChat: MensajeChat[] = [];
+  // Cuántos turnos previos se envían al backend como memoria corta.
+  private readonly MAX_TURNOS_MEMORIA = 8;
+  // Memoria ligera para resolver referencias implícitas ("el móvil", "ese reloj", "y después?").
+  protected contextoConversacion: {
+    ultimaEntidad: string | null;
+    ultimoTema: string | null;
+    ultimosMensajes: string[];
+    ultimosConceptos: string[];
+    ultimosTimestamps: number[];
+  } = {
+    ultimaEntidad: null,
+    ultimoTema: null,
+    ultimosMensajes: [],
+    ultimosConceptos: [],
+    ultimosTimestamps: []
+  };
+
+  @ViewChild('hiloChat') private hiloChatRef?: ElementRef<HTMLDivElement>;
+
   protected faseActual: FaseTrabajo | null = null;
 
   protected menuTarjetaAbiertoId: number | null = null;
@@ -146,6 +169,10 @@ export class App implements OnInit, OnDestroy {
   protected guardandoAsignatura = false;
   protected errorGuardarAsignatura = '';
 
+  // Asignatura sobre la que actúan los modales (sirve tanto para la página de detalle
+  // como para las tarjetas del grid de Mis Cursos).
+  protected asignaturaObjetivo: Asignatura | null = null;
+
   // Modal editar asignatura
   protected modalEditarAsignatura = false;
   protected editarAsignaturaNombre = '';
@@ -159,6 +186,9 @@ export class App implements OnInit, OnDestroy {
   protected eliminarAsignaturaConfirmacion = '';
   protected eliminandoAsignatura = false;
   protected errorEliminarAsignatura = '';
+
+  // Menú contextual de tres puntos en las tarjetas del grid de Mis Cursos
+  protected menuAsignaturaCardId: number | null = null;
 
   // Búsqueda dentro de asignatura
   protected preguntaAsignatura = '';
@@ -218,6 +248,8 @@ export class App implements OnInit, OnDestroy {
   protected mostrarAviso180s = false;
   protected trabajoActivoId: string | null = null;
   protected asignaturaClase = 'Sin asignatura';
+  // La asignatura actual es solo una sugerencia automática (metadato visual).
+  protected asignaturaSugerida = false;
   protected profesorClase = 'Profesor pendiente';
   protected fechaClase = this.obtenerFechaActual();
   protected tiempoInicioReproductor = 0;
@@ -369,6 +401,10 @@ export class App implements OnInit, OnDestroy {
       this.menuAsignaturaAbierto = false;
       this.cd.detectChanges();
     }
+    if (this.menuAsignaturaCardId !== null) {
+      this.menuAsignaturaCardId = null;
+      this.cd.detectChanges();
+    }
     if (this.menuItemAbierto !== null) {
       this.menuItemAbierto = null;
       this.cd.detectChanges();
@@ -400,11 +436,7 @@ export class App implements OnInit, OnDestroy {
     this.capitulos = [];
     this.conceptos = [];
     this.resultadosBusqueda = [];
-    this.respuestaRag = null;
-    this.fuentesExpandidas = false;
-    this.pregunta = '';
-    this.preguntaEnviada = '';
-    this.errorBusqueda = '';
+    this.reiniciarChat();
     this.tiempoInicioReproductor = 0;
     this.faseActual = null;
     // Montar YA el iframe real del vídeo nuevo (id extraído de la URL) para que sea
@@ -724,6 +756,7 @@ export class App implements OnInit, OnDestroy {
     this.videoSeleccionado = video;
     this.guardarVideoEnCache(video);
     this.asignaturaClase = video.asignatura || 'Sin asignatura';
+    this.asignaturaSugerida = video.asignaturaSugerida ?? false;
     this.profesorClase = video.profesor || 'Profesor pendiente';
     this.actualizarOpcionesMetadataDesdeVideos([video]);
     this.fechaClase = video.fechaClase || this.normalizarFecha(video.fechaCreacion);
@@ -731,12 +764,8 @@ export class App implements OnInit, OnDestroy {
     this.capitulos = [];
     this.conceptos = [];
     this.resultadosBusqueda = [];
-    this.respuestaRag = null;
-    this.pregunta = '';
-    this.preguntaEnviada = '';
-    this.errorBusqueda = '';
+    this.reiniciarChat();
     this.editandoTitulo = false;
-    this.fuentesExpandidas = false;
     this.cargandoFragmentos = true;
     if (actualizarUrl) {
       this.actualizarRuta('#/clase/' + video.id);
@@ -808,28 +837,134 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
-  buscarEnVideo(): void {
-    if (!this.pregunta.trim() || !this.videoSeleccionado) return;
+  enviarMensajeChat(): void {
+    if (!this.pregunta.trim() || !this.videoSeleccionado || this.cargandoBusqueda) return;
     const preguntaActual = this.pregunta.trim();
+
+    // Se añade el mensaje del usuario al hilo visible (no desaparece nada de lo anterior).
+    this.mensajesChat.push({ rol: 'user', contenido: preguntaActual, timestamp: Date.now() });
+    this.contextoConversacion.ultimosMensajes.push(preguntaActual);
+
+    // Memoria corta: se envían los últimos N turnos previos (sin contar el mensaje recién añadido).
+    const historial = this.mensajesChat
+      .slice(0, -1)
+      .slice(-this.MAX_TURNOS_MEMORIA)
+      .map((m) => ({ rol: m.rol, contenido: m.contenido }));
+
+    this.pregunta = '';
     this.cargandoBusqueda = true;
     this.errorBusqueda = '';
-    this.respuestaRag = null;
-    this.preguntaEnviada = preguntaActual;
-    this.fuentesExpandidas = false;
+    this.desplazarChatAlFinal();
 
-    this.transcripcionServicio.responder(this.videoSeleccionado.id, preguntaActual).subscribe({
-      next: (respuesta) => {
-        this.respuestaRag = respuesta;
-        this.pregunta = '';
-        this.cargandoBusqueda = false;
-        this.cd.detectChanges();
-      },
-      error: (err) => {
-        this.errorBusqueda = err.error?.error ?? 'Error al generar la respuesta';
-        this.cargandoBusqueda = false;
-        this.cd.detectChanges();
+    this.transcripcionServicio
+      .conversar(this.videoSeleccionado.id, preguntaActual, historial, this.contextoConversacion.ultimaEntidad)
+      .subscribe({
+        next: (respuesta) => {
+          this.mensajesChat.push({
+            rol: 'assistant',
+            contenido: respuesta.respuesta,
+            fuentes: respuesta.fuentes,
+            timestamp: Date.now()
+          });
+          this.actualizarContextoConversacion(preguntaActual, respuesta);
+          this.cargandoBusqueda = false;
+          this.cd.detectChanges();
+          this.desplazarChatAlFinal();
+        },
+        error: (err) => {
+          this.errorBusqueda = err.error?.error ?? 'Error al generar la respuesta';
+          this.cargandoBusqueda = false;
+          this.cd.detectChanges();
+          this.desplazarChatAlFinal();
+        }
+      });
+  }
+
+  /** Reinicia toda la conversación (historial visible + memoria corta). Al salir de la clase. */
+  private reiniciarChat(): void {
+    this.mensajesChat = [];
+    this.contextoConversacion = {
+      ultimaEntidad: null,
+      ultimoTema: null,
+      ultimosMensajes: [],
+      ultimosConceptos: [],
+      ultimosTimestamps: []
+    };
+    this.respuestaRag = null;
+    this.pregunta = '';
+    this.preguntaEnviada = '';
+    this.errorBusqueda = '';
+    this.fuentesExpandidas = false;
+  }
+
+  /** Actualiza la memoria ligera tras cada respuesta: entidad, tema, conceptos y timestamps recientes. */
+  private actualizarContextoConversacion(pregunta: string, respuesta: RespuestaRag): void {
+    // La entidad se busca primero en la respuesta del asistente (suele nombrar el referente),
+    // y si no aparece, en la pregunta. Si no se detecta nada nuevo, se conserva la anterior
+    // (así "el móvil" sigue apuntando a "iPhone 17 Pro Max").
+    const entidad = this.extraerEntidad(respuesta.respuesta) ?? this.extraerEntidad(pregunta);
+    if (entidad) {
+      this.contextoConversacion.ultimaEntidad = entidad;
+      this.contextoConversacion.ultimoTema = entidad;
+      this.contextoConversacion.ultimosConceptos.push(entidad);
+      this.contextoConversacion.ultimosConceptos =
+        this.contextoConversacion.ultimosConceptos.slice(-5);
+    }
+
+    this.contextoConversacion.ultimosMensajes.push(respuesta.respuesta);
+    this.contextoConversacion.ultimosMensajes =
+      this.contextoConversacion.ultimosMensajes.slice(-10);
+
+    if (respuesta.fuentes?.length) {
+      for (const f of respuesta.fuentes) {
+        this.contextoConversacion.ultimosTimestamps.push(f.tiempoInicio);
       }
-    });
+      this.contextoConversacion.ultimosTimestamps =
+        this.contextoConversacion.ultimosTimestamps.slice(-10);
+    }
+  }
+
+  /**
+   * Heurística ligera para detectar la entidad/tema principal de un texto: la secuencia más
+   * larga de palabras "relevantes" (con mayúscula inicial o interna como iPhone, o cifras de
+   * modelo) que contenga al menos una con mayúscula. Captura "iPhone 17 Pro Max", "Apple Watch".
+   */
+  private extraerEntidad(texto: string | null | undefined): string | null {
+    if (!texto) return null;
+    const palabras = texto.replace(/[.,;:¿?¡!()"]/g, ' ').split(/\s+/).filter((p) => p.length > 0);
+    const tieneMayuscula = (p: string) => /[A-ZÁÉÍÓÚÑ]/.test(p);
+    const esModelo = (p: string) => /^[0-9]+[a-zA-Z]*$/.test(p) || /^[a-z]*[A-Z]/.test(p);
+    const esRelevante = (p: string) => tieneMayuscula(p) || esModelo(p);
+    const iniciales = new Set(['El', 'La', 'Los', 'Las', 'Un', 'Una', 'En', 'De', 'Y', 'O', 'Su', 'Este', 'Esta', 'Ese', 'Esa']);
+
+    let mejor: string[] = [];
+    let actual: string[] = [];
+    const cerrar = () => {
+      if (actual.some(tieneMayuscula) && actual.length > mejor.length) {
+        mejor = actual;
+      }
+      actual = [];
+    };
+    for (const p of palabras) {
+      const limpia = actual.length === 0 && iniciales.has(p) ? null : p;
+      if (limpia && esRelevante(limpia)) {
+        actual.push(limpia);
+      } else {
+        cerrar();
+      }
+    }
+    cerrar();
+    return mejor.length > 0 ? mejor.join(' ') : null;
+  }
+
+  /** Desplaza el hilo del chat al último mensaje (auto-scroll al fondo). */
+  private desplazarChatAlFinal(): void {
+    setTimeout(() => {
+      const el = this.hiloChatRef?.nativeElement;
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+      }
+    }, 0);
   }
 
   esFaseCompletada(fase: FaseTrabajo): boolean {
@@ -919,6 +1054,8 @@ export class App implements OnInit, OnDestroy {
 
   seleccionarAsignatura(nombreAsignatura: string): void {
     this.asignaturaClase = nombreAsignatura;
+    // Elección manual: deja de mostrarse como sugerida (el backend la marca como MANUAL).
+    this.asignaturaSugerida = false;
     this.cerrarSelectorMetadato();
 
     // Buscar el objeto real para enviar idAsignatura si existe
@@ -1413,12 +1550,25 @@ export class App implements OnInit, OnDestroy {
 
   // ── Editar asignatura ────────────────────────────────────────────────────
 
-  abrirModalEditarAsignatura(): void {
-    if (!this.asignaturaDetalle) return;
-    this.editarAsignaturaNombre = this.asignaturaDetalle.nombre ?? '';
-    this.editarAsignaturaDescripcion = this.asignaturaDetalle.descripcion ?? '';
-    this.editarAsignaturaProfesor = (this.asignaturaDetalle.profesor && this.asignaturaDetalle.profesor !== 'Profesor pendiente')
-      ? this.asignaturaDetalle.profesor : '';
+  abrirModalEditarAsignatura(origen?: Asignatura): void {
+    // Si llega una asignatura del grid se usa esa; si no, la de la página de detalle.
+    const objetivo: Asignatura | null = origen
+      ?? (this.asignaturaDetalle
+        ? {
+            id: this.asignaturaDetalle.id,
+            nombre: this.asignaturaDetalle.nombre,
+            descripcion: this.asignaturaDetalle.descripcion ?? null,
+            profesor: this.asignaturaDetalle.profesor ?? null,
+            numeroClases: 0,
+            fechaActualizacion: null
+          }
+        : null);
+    if (!objetivo) return;
+    this.asignaturaObjetivo = objetivo;
+    this.editarAsignaturaNombre = objetivo.nombre ?? '';
+    this.editarAsignaturaDescripcion = objetivo.descripcion ?? '';
+    this.editarAsignaturaProfesor = (objetivo.profesor && objetivo.profesor !== 'Profesor pendiente')
+      ? objetivo.profesor : '';
     this.errorEditarAsignatura = '';
     this.modalEditarAsignatura = true;
   }
@@ -1427,10 +1577,11 @@ export class App implements OnInit, OnDestroy {
     this.modalEditarAsignatura = false;
     this.guardandoEditarAsignatura = false;
     this.errorEditarAsignatura = '';
+    this.asignaturaObjetivo = null;
   }
 
   guardarEditarAsignatura(): void {
-    if (!this.asignaturaDetalle) return;
+    if (!this.asignaturaObjetivo) return;
     if (!this.editarAsignaturaNombre.trim()) {
       this.errorEditarAsignatura = 'El nombre es obligatorio.';
       return;
@@ -1438,7 +1589,7 @@ export class App implements OnInit, OnDestroy {
     this.guardandoEditarAsignatura = true;
     this.errorEditarAsignatura = '';
 
-    const id = this.asignaturaDetalle.id;
+    const id = this.asignaturaObjetivo.id;
     const solicitud: SolicitudAsignatura = {
       nombre: this.editarAsignaturaNombre.trim(),
       descripcion: this.editarAsignaturaDescripcion.trim(),
@@ -1477,7 +1628,20 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
-  abrirModalEliminarAsignatura(): void {
+  abrirModalEliminarAsignatura(origen?: Asignatura): void {
+    const objetivo: Asignatura | null = origen
+      ?? (this.asignaturaDetalle
+        ? {
+            id: this.asignaturaDetalle.id,
+            nombre: this.asignaturaDetalle.nombre,
+            descripcion: this.asignaturaDetalle.descripcion ?? null,
+            profesor: this.asignaturaDetalle.profesor ?? null,
+            numeroClases: 0,
+            fechaActualizacion: null
+          }
+        : null);
+    if (!objetivo) return;
+    this.asignaturaObjetivo = objetivo;
     this.eliminarAsignaturaConfirmacion = '';
     this.errorEliminarAsignatura = '';
     this.modalEliminarAsignatura = true;
@@ -1488,32 +1652,40 @@ export class App implements OnInit, OnDestroy {
     this.eliminandoAsignatura = false;
     this.errorEliminarAsignatura = '';
     this.eliminarAsignaturaConfirmacion = '';
+    this.asignaturaObjetivo = null;
   }
 
   confirmarEliminarAsignatura(): void {
-    if (!this.asignaturaDetalle) return;
-    if (this.eliminarAsignaturaConfirmacion !== this.asignaturaDetalle.nombre) {
+    if (!this.asignaturaObjetivo) return;
+    if (this.eliminarAsignaturaConfirmacion !== this.asignaturaObjetivo.nombre) {
       this.errorEliminarAsignatura = 'El nombre no coincide exactamente.';
       return;
     }
     this.eliminandoAsignatura = true;
     this.errorEliminarAsignatura = '';
 
+    const idEliminada = this.asignaturaObjetivo.id;
+    // Si estábamos viendo el detalle de esta asignatura, tras borrar hay que volver al grid.
+    const veniaDeDetalle = this.vistaActual === 'cursos-detalle' && this.asignaturaDetalle?.id === idEliminada;
+
     this.transcripcionServicio.eliminarAsignatura(
-      this.asignaturaDetalle.id,
+      idEliminada,
       this.eliminarAsignaturaConfirmacion
     ).subscribe({
       next: () => {
-        const idEliminada = this.asignaturaDetalle!.id;
         this.asignaturas = this.asignaturas.filter(a => a.id !== idEliminada);
         this.asignaturasObjetos = this.asignaturasObjetos.filter(a => a.id !== idEliminada);
         // Invalidar cachés de la asignatura borrada
         this.cacheListaAsignaturas = [...this.asignaturas];
         this.cacheDetalleAsignatura.delete(idEliminada);
         this.sincronizarNombresSelector();
-        this.asignaturaDetalle = null;
         this.cerrarModalEliminarAsignatura();
-        this.irACursos();
+        if (veniaDeDetalle) {
+          // Desde la página de detalle: volver al grid de Mis Cursos.
+          this.asignaturaDetalle = null;
+          this.irACursos();
+        }
+        // Desde el grid: la card desaparece sola al filtrar this.asignaturas (sin recargar).
         this.cd.markForCheck();
       },
       error: (err) => {
@@ -1522,6 +1694,26 @@ export class App implements OnInit, OnDestroy {
         this.cd.markForCheck();
       }
     });
+  }
+
+  /** Abre/cierra el menú de tres puntos de una tarjeta del grid de Mis Cursos. */
+  alternarMenuAsignaturaCard(id: number, evento: Event): void {
+    evento.stopPropagation();
+    this.menuAsignaturaCardId = this.menuAsignaturaCardId === id ? null : id;
+  }
+
+  /** Acción "Editar" desde el menú de una tarjeta del grid. */
+  editarAsignaturaDesdeCard(asignatura: Asignatura, evento: Event): void {
+    evento.stopPropagation();
+    this.menuAsignaturaCardId = null;
+    this.abrirModalEditarAsignatura(asignatura);
+  }
+
+  /** Acción "Eliminar" desde el menú de una tarjeta del grid. */
+  eliminarAsignaturaDesdeCard(asignatura: Asignatura, evento: Event): void {
+    evento.stopPropagation();
+    this.menuAsignaturaCardId = null;
+    this.abrirModalEliminarAsignatura(asignatura);
   }
 
   buscarEnAsignatura(): void {
@@ -2032,14 +2224,14 @@ export class App implements OnInit, OnDestroy {
   aplicarSugerenciaChat(sugerencia: string): void {
     this.pregunta = sugerencia;
     if (this.videoSeleccionado) {
-      this.buscarEnVideo();
+      this.enviarMensajeChat();
     }
   }
 
   preguntarConcepto(concepto: ConceptoClave): void {
     this.pregunta = `Explicame el concepto "${concepto.nombre}" en esta clase`;
     if (this.videoSeleccionado) {
-      this.buscarEnVideo();
+      this.enviarMensajeChat();
     }
   }
 
@@ -2390,6 +2582,7 @@ export class App implements OnInit, OnDestroy {
     if (this.videoSeleccionado?.id === videoActualizado.id) {
       this.videoSeleccionado = videoActualizado;
       this.asignaturaClase = videoActualizado.asignatura || 'Sin asignatura';
+      this.asignaturaSugerida = videoActualizado.asignaturaSugerida ?? false;
       this.profesorClase = videoActualizado.profesor || 'Profesor pendiente';
       this.fechaClase = videoActualizado.fechaClase || this.normalizarFecha(videoActualizado.fechaCreacion);
     }
@@ -2434,12 +2627,8 @@ export class App implements OnInit, OnDestroy {
     this.capitulos = [];
     this.conceptos = [];
     this.resultadosBusqueda = [];
-    this.respuestaRag = null;
-    this.pregunta = '';
-    this.preguntaEnviada = '';
-    this.errorBusqueda = '';
+    this.reiniciarChat();
     this.editandoTitulo = false;
-    this.fuentesExpandidas = false;
     this.cargandoFragmentos = false;
     this.limpiarReproductor();
   }

@@ -1,5 +1,6 @@
 package es.comprendia.recurso;
 
+import es.comprendia.dto.ConsultaConversacionDTO;
 import es.comprendia.dto.FragmentoDTO;
 import es.comprendia.dto.RespuestaRagDTO;
 import es.comprendia.dto.ResultadoBusquedaDTO;
@@ -230,6 +231,16 @@ public class TranscripcionConsultaRecurso {
             }
             video.asignaturaObj = asignatura;
             video.asignatura = asignatura.nombre;
+            // Elección manual: deja de ser una sugerencia.
+            video.asignaturaSugerida = false;
+            video.criterioAsignacion = es.comprendia.entidad.CriterioAsignacion.MANUAL;
+            // Aprendizaje: si el vídeo tiene canal y la asignatura aún no, asociarlo para
+            // que futuros vídeos del mismo canal se clasifiquen automáticamente por canal.
+            if (video.canalYoutubeId != null && !video.canalYoutubeId.isBlank()
+                && (asignatura.canalYoutubeId == null || asignatura.canalYoutubeId.isBlank())) {
+                asignatura.canalYoutubeId = video.canalYoutubeId;
+                asignatura.canalYoutubeNombre = video.canalYoutubeNombre;
+            }
             asignatura.fechaActualizacion = java.time.LocalDateTime.now();
         }
 
@@ -266,6 +277,27 @@ public class TranscripcionConsultaRecurso {
         }
         try {
             RespuestaRagDTO respuesta = ragServicio.responder(id, pregunta);
+            return Response.ok(respuesta).build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                .entity(Map.of("error", e.getMessage()))
+                .build();
+        }
+    }
+
+    @POST
+    @Path("/{id}/conversar")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response conversar(
+        @PathParam("id") Long id,
+        ConsultaConversacionDTO consulta) {
+        if (consulta == null || consulta.pregunta() == null || consulta.pregunta().isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                .entity(Map.of("error", "El campo 'pregunta' no puede estar vacío"))
+                .build();
+        }
+        try {
+            RespuestaRagDTO respuesta = ragServicio.responderConversacion(id, consulta);
             return Response.ok(respuesta).build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)

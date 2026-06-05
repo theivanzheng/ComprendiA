@@ -50,6 +50,60 @@ public class AudioExtraccionServicio {
         }
     }
 
+    /** Metadatos del canal de YouTube (pueden ser null si yt-dlp no los devuelve). */
+    public record MetadatosCanal(String canalId, String canalNombre) {}
+
+    /**
+     * Obtiene el id y el nombre del canal de YouTube con yt-dlp (sin descargar nada).
+     * Si falla o no hay datos, devuelve un MetadatosCanal con campos null.
+     */
+    public MetadatosCanal obtenerMetadatosCanal(String idVideo) {
+        String urlVideo = "https://www.youtube.com/watch?v=" + idVideo;
+        // Separador improbable en nombres de canal para partir la salida con seguridad.
+        List<String> comando = List.of(
+            "yt-dlp", "--print", "%(channel_id)s|||%(channel)s",
+            "--no-download", "--no-playlist", urlVideo
+        );
+        try {
+            ProcessBuilder builder = new ProcessBuilder(comando);
+            builder.redirectErrorStream(true);
+            Process proceso = builder.start();
+
+            StringBuilder salida = new StringBuilder();
+            Thread lector = new Thread(() -> {
+                try (var s = proceso.getInputStream()) {
+                    salida.append(new String(s.readAllBytes()).strip());
+                } catch (IOException ignorado) {}
+            });
+            lector.setDaemon(true);
+            lector.start();
+
+            boolean termino = proceso.waitFor(30, TimeUnit.SECONDS);
+            lector.join(2000);
+
+            if (!termino || proceso.exitValue() != 0 || salida.toString().isBlank()) {
+                LOG.warnf("[Canal] yt-dlp no devolvió metadatos de canal para %s", idVideo);
+                return new MetadatosCanal(null, null);
+            }
+            String linea = salida.toString().lines().findFirst().orElse("");
+            String[] partes = linea.split("\\|\\|\\|", 2);
+            String canalId = limpiarMetadato(partes.length > 0 ? partes[0] : null);
+            String canalNombre = limpiarMetadato(partes.length > 1 ? partes[1] : null);
+            LOG.infof("[Canal] Canal detectado para %s: id=%s, nombre=%s", idVideo, canalId, canalNombre);
+            return new MetadatosCanal(canalId, canalNombre);
+        } catch (Exception e) {
+            LOG.warnf("[Canal] No se pudo obtener el canal del vídeo %s: %s", idVideo, e.getMessage());
+            return new MetadatosCanal(null, null);
+        }
+    }
+
+    // yt-dlp imprime "NA" cuando un campo no existe; se trata como ausente.
+    private String limpiarMetadato(String valor) {
+        if (valor == null) return null;
+        String v = valor.strip();
+        return (v.isBlank() || v.equals("NA")) ? null : v;
+    }
+
     public Path extraerAudio(String idVideo) {
         LOG.infof("[Estado] Iniciando descarga de audio para: %s", idVideo);
         long inicio = System.currentTimeMillis();

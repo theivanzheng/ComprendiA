@@ -2,6 +2,7 @@ package es.comprendia.servicio;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.comprendia.dto.MensajeChatDTO;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
@@ -12,6 +13,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -34,6 +36,21 @@ public class ChatGptServicio {
         "5) Puedes añadir 'aproximadamente' si el momento no es exacto. " +
         "Responde en el mismo idioma de la pregunta. Sé breve y claro.";
 
+    private static final String SISTEMA_CONVERSACION =
+        "Eres el copiloto conversacional de un vídeo de clase. Acompañas al alumno en una conversación " +
+        "continua sobre el contenido del vídeo, como lo haría un buen profesor cercano. " +
+        "Tienes acceso al historial reciente de la conversación y a extractos relevantes de la transcripción. " +
+        "Comportamiento obligatorio: " +
+        "1) Mantén el hilo: resuelve referencias implícitas usando el contexto previo. Si el alumno dice " +
+        "'el móvil', 'ese reloj', 'y después?', 'cuánto costaba?', entiende a qué se refería en mensajes anteriores. " +
+        "2) Responde de forma natural, breve y útil, en 1-3 frases. Nada de respuestas enormes. " +
+        "3) Te basas SOLO en los extractos proporcionados; si la información no aparece, dilo con prudencia y no inventes. " +
+        "4) Cuando cites un momento, usa formato minuto:segundo (por ejemplo 2:14), nunca 'segundos'. " +
+        "5) Nunca menciones 'fragmento', ni números entre corchetes como [1], ni 'fuentes usadas'. " +
+        "6) Prohibido Markdown pesado: nada de encabezados con #, ni listas largas, ni negritas. Tono humano, no robótico. " +
+        "Ejemplo de buen estilo: 'Habla del iPhone 17 Pro Max sobre el minuto 2:14. Comenta sobre todo el nuevo diseño y la cámara.' " +
+        "Responde en el mismo idioma de la pregunta.";
+
     @ConfigProperty(name = "comprendia.openai.api.clave", defaultValue = "")
     String claveApi;
 
@@ -48,6 +65,20 @@ public class ChatGptServicio {
         }
 
         String cuerpo = construirCuerpo(contexto, pregunta);
+        return enviarSolicitud(cuerpo);
+    }
+
+    /**
+     * Respuesta conversacional: incluye el historial reciente (memoria corta del frontend)
+     * y una pista de entidad reciente para resolver referencias implícitas.
+     */
+    public String completarConversacion(String contexto, String pregunta,
+                                        List<MensajeChatDTO> historial, String entidadReciente) {
+        if (claveApi.isBlank()) {
+            throw new IllegalStateException("OPENAI_API_KEY no configurada");
+        }
+
+        String cuerpo = construirCuerpoConversacion(contexto, pregunta, historial, entidadReciente);
         return enviarSolicitud(cuerpo);
     }
 
@@ -110,6 +141,42 @@ public class ChatGptServicio {
             ));
         } catch (Exception e) {
             throw new IllegalStateException("Error al construir el cuerpo de la peticion", e);
+        }
+    }
+
+    private String construirCuerpoConversacion(String contexto, String pregunta,
+                                              List<MensajeChatDTO> historial, String entidadReciente) {
+        try {
+            List<Map<String, String>> mensajes = new ArrayList<>();
+            mensajes.add(Map.of("role", "system", "content", SISTEMA_CONVERSACION));
+
+            // Historial reciente (memoria corta). Se cortan tamaños desorbitados por seguridad.
+            if (historial != null) {
+                for (MensajeChatDTO turno : historial) {
+                    if (turno == null || turno.contenido() == null || turno.contenido().isBlank()) continue;
+                    String role = "assistant".equalsIgnoreCase(turno.rol()) ? "assistant" : "user";
+                    String contenido = turno.contenido().length() > 1200
+                        ? turno.contenido().substring(0, 1200) : turno.contenido();
+                    mensajes.add(Map.of("role", role, "content", contenido));
+                }
+            }
+
+            StringBuilder usuario = new StringBuilder();
+            usuario.append("Extractos relevantes de la transcripcion del video:\n").append(contexto);
+            if (entidadReciente != null && !entidadReciente.isBlank()) {
+                usuario.append("\nContexto reciente de la conversacion (posible referente de pronombres o alusiones): ")
+                       .append(entidadReciente).append(".");
+            }
+            usuario.append("\n\nMensaje del alumno: ").append(pregunta);
+
+            Map<String, Object> cuerpo = new java.util.HashMap<>();
+            cuerpo.put("model", MODELO);
+            cuerpo.put("temperature", 0.3);
+            cuerpo.put("max_tokens", 320);
+            cuerpo.put("messages", mensajes);
+            return mapeadorJson.writeValueAsString(cuerpo);
+        } catch (Exception e) {
+            throw new IllegalStateException("Error al construir el cuerpo conversacional", e);
         }
     }
 

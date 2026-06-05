@@ -28,4 +28,21 @@ public class Asignatura extends PanacheEntity {
 
     @Column(name = "fecha_actualizacion")
     public LocalDateTime fechaActualizacion;
+
+    // ── Datos para la clasificación automática de vídeos ─────────────────────
+    // Canal de YouTube asociado a esta asignatura (si todos sus vídeos vienen del mismo).
+    @Column(name = "canal_youtube_id")
+    public String canalYoutubeId;
+
+    @Column(name = "canal_youtube_nombre")
+    public String canalYoutubeNombre;
+
+    // Palabras clave representativas del temario (texto libre separado por comas).
+    @Column(name = "palabras_clave", columnDefinition = "TEXT")
+    public String palabrasClave;
+
+    // Embedding representativo de la asignatura (JSON de doubles). Se usa para
+    // comparar por similitud semántica con vídeos nuevos. Opcional.
+    @Column(name = "embedding_resumen", columnDefinition = "TEXT")
+    public String embeddingResumen;
 }

@@ -47,4 +47,22 @@ public class Video extends PanacheEntity {
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "asignatura_id")
     public Asignatura asignaturaObj;
+
+    // ── Clasificación automática de asignatura ───────────────────────────────
+    // Canal de YouTube del que procede el vídeo (para clasificar por canal).
+    @Column(name = "canal_youtube_id")
+    public String canalYoutubeId;
+
+    @Column(name = "canal_youtube_nombre")
+    public String canalYoutubeNombre;
+
+    // Si la asignatura actual es solo una SUGERENCIA (no confirmada por el usuario).
+    // Es metadato visual: NO afecta al nombre real de la asignatura.
+    @Column(name = "asignatura_sugerida")
+    public Boolean asignaturaSugerida = false;
+
+    // Cómo se asignó la asignatura (canal, semántica, manual o ninguno).
+    @Enumerated(EnumType.STRING)
+    @Column(name = "criterio_asignacion")
+    public CriterioAsignacion criterioAsignacion = CriterioAsignacion.NINGUNO;
 }

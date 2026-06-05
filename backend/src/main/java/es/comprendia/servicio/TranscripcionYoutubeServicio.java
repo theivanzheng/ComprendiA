@@ -42,6 +42,9 @@ public class TranscripcionYoutubeServicio {
     AnalisisClaseServicio analisisClaseServicio;
 
     @Inject
+    ClasificacionAsignaturaServicio clasificacionAsignaturaServicio;
+
+    @Inject
     @ConfigProperty(name = "comprendia.transcripcion.modo", defaultValue = "simulada")
     String modoTranscripcion;
 
@@ -122,6 +125,20 @@ public class TranscripcionYoutubeServicio {
             analisisClaseServicio.generarYGuardar(idVideoGuardado, fragmentosGuardados);
             LOG.infof("[Tiempo] Analisis de clase completado en %d ms",
                 System.currentTimeMillis() - inicioFase);
+
+            // Fase 6: autoasignación sugerida de asignatura (canal / semántica / nueva).
+            // No debe romper el procesamiento: si falla, se registra y se continúa.
+            if (idVideoGuardado != null) {
+                try {
+                    inicioFase = System.currentTimeMillis();
+                    clasificacionAsignaturaServicio.clasificarYAsignar(idVideoGuardado, idVideo);
+                    LOG.infof("[Tiempo] Autoasignación de asignatura completada en %d ms",
+                        System.currentTimeMillis() - inicioFase);
+                } catch (Exception e) {
+                    LOG.warnf("[Clasificacion] La autoasignación falló para vídeo id=%s: %s",
+                        idVideoGuardado, e.getMessage());
+                }
+            }
 
             LOG.infof("[Tiempo] ===== Proceso total completado en %d ms =====",
                 System.currentTimeMillis() - inicioTotal);

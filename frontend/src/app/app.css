@@ -734,6 +734,16 @@
   font-weight: 780;
 }
 
+/* Texto discreto "(sugerida)" junto a una asignatura autoasignada. No es parte del nombre. */
+.sugerida-tag {
+  margin-left: 0.08rem;
+  color: rgba(199, 196, 216, 0.5);
+  font-size: 0.66rem;
+  font-weight: 600;
+  font-style: italic;
+  flex-shrink: 0;
+}
+
 .class-meta-pill i {
   width: 6px;
   height: 6px;
@@ -741,6 +751,19 @@
   border-right: 1px solid rgba(199, 196, 216, 0.72);
   border-bottom: 1px solid rgba(199, 196, 216, 0.72);
   transform: translateY(-1px) rotate(45deg);
+}
+
+/* Enlace discreto al vídeo original de YouTube. Reutiliza el estilo de pill de metadatos. */
+.source-pill {
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.source-pill:hover {
+  background: rgba(255, 99, 92, 0.12);
+  border-color: rgba(255, 99, 92, 0.32);
+  color: rgba(228, 225, 231, 0.94);
 }
 
 .date-pill {
@@ -1592,6 +1615,44 @@
   color: #ffb4ab;
 }
 
+/* Mensajes del hilo: entrada suave para que no aparezcan de golpe. */
+.message {
+  animation: mensaje-entra 0.18s ease;
+}
+
+@keyframes mensaje-entra {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Indicador "escribiendo" mientras el asistente responde. */
+.message-typing {
+  padding-top: 0.78rem;
+  padding-bottom: 0.78rem;
+}
+
+.typing-dots {
+  display: inline-flex;
+  gap: 0.28rem;
+  align-items: center;
+}
+
+.typing-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(199, 196, 216, 0.6);
+  animation: typing-bote 1s infinite ease-in-out;
+}
+
+.typing-dots i:nth-child(2) { animation-delay: 0.15s; }
+.typing-dots i:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes typing-bote {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.5; }
+  40% { transform: translateY(-3px); opacity: 1; }
+}
+
 .source-list {
   display: grid;
   gap: 0.35rem;
@@ -1944,7 +2005,33 @@
 
 .asignatura-card-top {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+/* Menú de tres puntos en la tarjeta: discreto, no compite con el badge de clases. */
+.asignatura-card-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+  margin-top: 0;
+}
+
+.asignatura-card-menu-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: transparent;
+  border-color: transparent;
+  opacity: 0.45;
+  transition: opacity 0.14s ease, background 0.14s ease, border-color 0.14s ease;
+}
+
+.asignatura-card:hover .asignatura-card-menu-btn,
+.asignatura-card-menu-btn.activo {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .asignatura-badge {

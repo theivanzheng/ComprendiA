@@ -16,5 +16,7 @@ public record VideoResumenDTO(
     boolean completado,
     Long idAsignatura,
     Long idProfesor,
-    String resumen
+    String resumen,
+    boolean asignaturaSugerida,
+    String criterioAsignacion
 ) {}

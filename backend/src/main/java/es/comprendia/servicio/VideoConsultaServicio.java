@@ -93,7 +93,11 @@ public class VideoConsultaServicio {
             Boolean.TRUE.equals(video.completado),
             idAsignatura,
             idProfesor,
-            video.resumen
+            video.resumen,
+            // El propio flag es la fuente de verdad (lo pone el clasificador y lo limpia
+            // la asignación manual). No se condiciona a asignaturaObj para no enmascararlo.
+            Boolean.TRUE.equals(video.asignaturaSugerida),
+            video.criterioAsignacion != null ? video.criterioAsignacion.name() : null
         );
     }
 }

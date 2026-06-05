@@ -230,4 +230,16 @@ export class TranscripcionServicio {
       { params: { pregunta } }
     );
   }
+
+  conversar(
+    id: number,
+    pregunta: string,
+    historial: { rol: string; contenido: string }[],
+    entidadReciente: string | null
+  ): Observable<RespuestaRag> {
+    return this.http.post<RespuestaRag>(
+      `${this.urlBase}/transcripciones/${id}/conversar`,
+      { pregunta, historial, entidadReciente }
+    );
+  }
 }
