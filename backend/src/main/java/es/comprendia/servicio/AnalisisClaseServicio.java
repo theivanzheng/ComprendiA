@@ -68,34 +68,17 @@ public class AnalisisClaseServicio {
             usandoGpt = false;
         }
 
+        // Normalización temporal final (orden ASC, dedup, fin = inicio del siguiente, sin
+        // solapamientos). Se aplica a AMBOS caminos (GPT y fallback) antes de persistir.
+        List<CapituloVideoDTO> capitulosNorm = ajustarMonotonicidadYFines(resultado.capitulos(), duracion);
+        resultado = new ResultadoAnalisis(capitulosNorm, resultado.conceptos());
         double maxCapFin = maxTiempoFinCapitulos(resultado.capitulos());
-        // Guard de cobertura SUAVE: si GPT dio capítulos semánticos pero no llegan al final,
-        // NO se regenera por bloques (eso parecería "un capítulo por minuto"): se amplía el
-        // último capítulo hasta el final, conservando los títulos reales de GPT.
-        if (usandoGpt && duracion > 0 && maxCapFin < 0.85 * duracion && !resultado.capitulos().isEmpty()) {
-            LOG.infof("[Analisis] Cobertura GPT hasta %.0fs de %.0fs (%.0f%%): se amplia el ultimo capitulo hasta el final (sin trocear por minutos)",
-                maxCapFin, duracion, (maxCapFin / duracion) * 100);
-            resultado = ampliarUltimoCapituloHastaFinal(resultado, duracion);
-            maxCapFin = maxTiempoFinCapitulos(resultado.capitulos());
-        }
 
         capituloRepositorio.reemplazar(idVideo, resultado.capitulos());
         conceptoRepositorio.reemplazar(idVideo, resultado.conceptos());
         LOG.infof("[Analisis] Guardados %d capitulos (fuente=%s, cubren hasta %.0fs de %.0fs) y %d conceptos para video id=%s",
             resultado.capitulos().size(), usandoGpt ? "GPT" : "FALLBACK", maxCapFin, duracion,
             resultado.conceptos().size(), idVideo);
-    }
-
-    // Amplía el tiempoFin del último capítulo hasta la duración total, conservando el resto.
-    private ResultadoAnalisis ampliarUltimoCapituloHastaFinal(ResultadoAnalisis resultado, double duracion) {
-        List<CapituloVideoDTO> capitulos = new ArrayList<>(resultado.capitulos());
-        int ultimo = capitulos.size() - 1;
-        CapituloVideoDTO c = capitulos.get(ultimo);
-        double inicio = c.tiempoInicio() == null ? 0.0 : c.tiempoInicio();
-        capitulos.set(ultimo, new CapituloVideoDTO(
-            c.id(), c.titulo(), c.descripcion(), inicio, Math.max(duracion, inicio),
-            c.orden(), c.origen(), c.creadoManual(), c.generadoPorIa()));
-        return new ResultadoAnalisis(capitulos, resultado.conceptos());
     }
 
     private double maxTiempoFin(List<FragmentoTranscripcion> fragmentos) {
@@ -171,9 +154,8 @@ public class AnalisisClaseServicio {
                     i + 1, c.titulo(), c.fraseClave(), idx, inicio, recorte(frag.texto, 60));
                 capitulos.add(new CapituloVideoDTO(null, c.titulo(), c.descripcion(), inicio, inicio, i, "IA", false, true));
             }
-
-            // tiempoFin de cada capítulo = inicio del siguiente; el último, hasta la duración
-            capitulos = ajustarMonotonicidadYFines(capitulos, duracion);
+            // La normalización temporal final (orden, fines, sin solapamientos) se hace en
+            // generarYGuardar, común a GPT y fallback.
 
             // ── Conceptos: timestamp = fragmento real más parecido (sin forzar monotonía) ──
             List<ConceptoClaveVideoDTO> conceptos = new ArrayList<>();
@@ -243,37 +225,64 @@ public class AnalisisClaseServicio {
         return tokens;
     }
 
-    // Asegura tiempos estrictamente crecientes y fija tiempoFin = inicio del siguiente capítulo.
+    // Normaliza los tiempos de los capítulos: los ORDENA por tiempo_inicio, elimina
+    // duplicados/cercanos y fija tiempo_fin = inicio del siguiente (último = duración).
+    // Garantiza: orden ASC, sin solapamientos, fin > inicio, orden_capitulo recalculado.
+    private static final double DISTANCIA_MINIMA = 2.0; // segundos mínimos entre capítulos
+
     private List<CapituloVideoDTO> ajustarMonotonicidadYFines(List<CapituloVideoDTO> capitulos, double duracion) {
-        List<CapituloVideoDTO> ajustados = new ArrayList<>(capitulos);
-        // 0) El primer capítulo arranca en 0 (la clase empieza al inicio del vídeo)
-        if (!ajustados.isEmpty()) {
-            CapituloVideoDTO p = ajustados.get(0);
-            ajustados.set(0, new CapituloVideoDTO(p.id(), p.titulo(), p.descripcion(), 0.0, 0.0,
-                p.orden(), p.origen(), p.creadoManual(), p.generadoPorIa()));
+        if (capitulos.isEmpty()) return capitulos;
+
+        // [Log] Antes de normalizar
+        LOG.info("[Analisis] Capitulos ANTES de normalizar:");
+        for (CapituloVideoDTO c : capitulos) {
+            LOG.infof("  inicio=%.1f fin=%.1f '%s'",
+                valorTiempo(c.tiempoInicio()), valorTiempo(c.tiempoFin()), c.titulo());
         }
-        // 1) Monotonicidad estricta de tiempoInicio
-        for (int i = 1; i < ajustados.size(); i++) {
-            double prev = valorTiempo(ajustados.get(i - 1).tiempoInicio());
-            double actual = valorTiempo(ajustados.get(i).tiempoInicio());
-            if (actual <= prev) {
-                actual = Math.min(prev + 1, Math.max(duracion, prev + 1));
-                CapituloVideoDTO c = ajustados.get(i);
-                ajustados.set(i, new CapituloVideoDTO(c.id(), c.titulo(), c.descripcion(), actual, actual,
-                    c.orden(), c.origen(), c.creadoManual(), c.generadoPorIa()));
+
+        // 1) Ordenar por tiempo_inicio ASC
+        List<CapituloVideoDTO> ordenados = new ArrayList<>(capitulos);
+        ordenados.sort(Comparator.comparingDouble(c -> valorTiempo(c.tiempoInicio())));
+
+        // 2) Eliminar duplicados / capítulos demasiado cercanos en el tiempo
+        List<CapituloVideoDTO> filtrados = new ArrayList<>();
+        double ultimoInicio = Double.NEGATIVE_INFINITY;
+        for (CapituloVideoDTO c : ordenados) {
+            double inicio = valorTiempo(c.tiempoInicio());
+            if (inicio > ultimoInicio + DISTANCIA_MINIMA) {
+                filtrados.add(c);
+                ultimoInicio = inicio;
+            } else {
+                LOG.infof("[Analisis] Descartado por duplicado/cercania (inicio=%.1f): '%s'", inicio, c.titulo());
             }
         }
-        // 2) tiempoFin = inicio del siguiente (o duración para el último)
-        for (int i = 0; i < ajustados.size(); i++) {
-            CapituloVideoDTO c = ajustados.get(i);
+
+        // 3) Reasignar orden_capitulo y fijar tiempo_fin = inicio del siguiente (último = duración)
+        List<CapituloVideoDTO> resultado = new ArrayList<>();
+        for (int i = 0; i < filtrados.size(); i++) {
+            CapituloVideoDTO c = filtrados.get(i);
             double inicio = valorTiempo(c.tiempoInicio());
-            double fin = (i + 1 < ajustados.size())
-                ? valorTiempo(ajustados.get(i + 1).tiempoInicio())
-                : Math.max(duracion, inicio);
-            ajustados.set(i, new CapituloVideoDTO(c.id(), c.titulo(), c.descripcion(), inicio,
-                Math.max(fin, inicio), c.orden(), c.origen(), c.creadoManual(), c.generadoPorIa()));
+            double fin = (i + 1 < filtrados.size())
+                ? valorTiempo(filtrados.get(i + 1).tiempoInicio())
+                : Math.max(duracion, inicio + 1);
+            if (fin <= inicio) fin = inicio + 1; // nunca fin <= inicio
+            resultado.add(new CapituloVideoDTO(
+                c.id(), c.titulo(), c.descripcion(), inicio, fin, i, c.origen(), c.creadoManual(), c.generadoPorIa()));
         }
-        return ajustados;
+
+        // [Log] Después de normalizar + detección de solapamientos
+        LOG.info("[Analisis] Capitulos DESPUES de normalizar:");
+        for (int i = 0; i < resultado.size(); i++) {
+            CapituloVideoDTO c = resultado.get(i);
+            LOG.infof("  #%d [%.1f -> %.1f] '%s'",
+                c.orden(), valorTiempo(c.tiempoInicio()), valorTiempo(c.tiempoFin()), c.titulo());
+            if (i + 1 < resultado.size()
+                && valorTiempo(c.tiempoFin()) > valorTiempo(resultado.get(i + 1).tiempoInicio()) + 0.01) {
+                LOG.warnf("[Analisis] SOLAPAMIENTO: cap#%d fin=%.1f > cap#%d inicio=%.1f",
+                    i, valorTiempo(c.tiempoFin()), i + 1, valorTiempo(resultado.get(i + 1).tiempoInicio()));
+            }
+        }
+        return resultado;
     }
 
     private String recorte(String texto, int max) {
