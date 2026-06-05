@@ -107,6 +107,11 @@ public class ChatGptServicio {
         if (claveApi.isBlank()) {
             throw new IllegalStateException("OPENAI_API_KEY no configurada");
         }
+        // Diagnóstico: qué recibe realmente la LLM (tamaño de contexto, nº de turnos, pregunta).
+        int turnos = historial == null ? 0 : historial.size();
+        int largoContexto = contexto == null ? 0 : contexto.length();
+        LOG.infof("[GPT-stream] contexto=%d chars, historial=%d turnos, entidad='%s', pregunta='%s'",
+            largoContexto, turnos, entidadReciente, pregunta);
         String cuerpo = construirCuerpoConversacion(contexto, pregunta, historial, entidadReciente, true);
         return enviarSolicitudStream(cuerpo, onChunk);
     }
