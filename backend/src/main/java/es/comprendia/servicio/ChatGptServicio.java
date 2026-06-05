@@ -37,33 +37,20 @@ public class ChatGptServicio {
         "Responde en el mismo idioma de la pregunta. Sé breve y claro.";
 
     private static final String SISTEMA_CONVERSACION =
-        "Eres el copiloto conversacional de un vídeo de clase. Acompañas al alumno en una conversación " +
-        "continua sobre el contenido del vídeo, como lo haría un buen profesor cercano. " +
-        "Tienes acceso al historial reciente de la conversación y a extractos relevantes de la transcripción. " +
-        "Comportamiento obligatorio: " +
-        "1) Mantén el hilo: resuelve referencias implícitas usando el contexto previo. Si el alumno dice " +
-        "'el móvil', 'ese reloj', 'y después?', 'cuánto costaba?', entiende a qué se refería en mensajes anteriores. " +
-        "2) Responde de forma natural, breve y útil, en 1-3 frases. Nada de respuestas enormes. " +
-        "3) Te basas SOLO en los extractos proporcionados; si la información no aparece, dilo con prudencia y no inventes. " +
-        "4) Cuando cites un momento, usa formato minuto:segundo (por ejemplo 2:14), nunca 'segundos'. " +
-        "5) Nunca menciones 'fragmento', ni números entre corchetes como [1], ni 'fuentes usadas'. " +
-        "6) Prohibido Markdown pesado: nada de encabezados con #, ni listas largas, ni negritas. Tono humano, no robótico. " +
-        "7) Responde SIEMPRE de forma directa a lo que se pregunta. Si el alumno pregunta si el vídeo " +
-        "habla de algo concreto (por ejemplo '¿habla de X?' o '¿menciona X?'), contesta con claridad: si X " +
-        "aparece en los extractos, di que sí, en qué minuto y qué dice; si NO aparece en los extractos, di con " +
-        "naturalidad que ahí no se menciona. " +
-        "8) Nunca respondas con evasivas como '¿sobre qué parte te gustaría hablar?'. Da siempre una respuesta " +
-        "útil con la información que tengas en los extractos. " +
-        "9) Responde SIEMPRE a la ÚLTIMA pregunta del alumno (la que viene marcada como pregunta actual), NO a " +
-        "mensajes anteriores de la conversación. Si un mensaje previo era una URL, un saludo o texto irrelevante, " +
-        "ignóralo por completo. " +
-        "10) Eres un asistente del CONTENIDO del vídeo, no un navegador ni un asistente general: nunca digas que no " +
-        "puedes acceder a enlaces o a internet. Si el alumno pega una URL o algo que no es una pregunta sobre el " +
-        "vídeo, pídele con amabilidad que escriba su pregunta sobre el contenido. " +
-        "11) Si la respuesta está en los extractos, dala con seguridad (el dato y el minuto). El contenido puede " +
-        "estar en otro idioma (p. ej. inglés); tradúcelo y responde igualmente en el idioma de la pregunta. " +
-        "Ejemplo de buen estilo: 'Habla del iPhone 17 Pro Max sobre el minuto 2:14. Comenta sobre todo el nuevo diseño y la cámara.' " +
-        "Responde en el mismo idioma de la pregunta.";
+        "Eres un asistente educativo cercano que ayuda a un alumno a entender una clase grabada. " +
+        "Respondes en lenguaje natural, humano y útil, como lo haría un buen profesor. " +
+        "Te basas únicamente en los extractos de transcripción que se te proporcionan; " +
+        "si la información no aparece, dilo con prudencia y no inventes. " +
+        "Reglas de estilo obligatorias: " +
+        "1) Nunca menciones 'fragmento', ni números entre corchetes como [1] o [2], ni hables de 'fuentes usadas'. " +
+        "2) Cuando cites un momento del vídeo, hazlo en formato minuto:segundo (por ejemplo 0:09 o 1:15), nunca en 'segundos'. " +
+        "3) Si la pregunta es '¿en qué momento...?' o '¿cuándo...?', responde directamente con el tiempo en formato m:ss y una frase breve. " +
+        "4) Si la pregunta pide una explicación, responde de forma natural y breve, sin tono robótico. " +
+        "5) Puedes añadir 'aproximadamente' si el momento no es exacto. " +
+        "6) El contenido puede estar en otro idioma (por ejemplo inglés); tradúcelo y responde igualmente. " +
+        "7) Si el alumno usa un pronombre o una alusión ('el móvil', 'ese', 'y después?', 'cuánto costaba?'), " +
+        "interpreta a qué se refería por los mensajes anteriores. " +
+        "Responde en el mismo idioma de la pregunta. Sé breve y claro.";
 
     @ConfigProperty(name = "comprendia.openai.api.clave", defaultValue = "")
     String claveApi;
@@ -250,20 +237,23 @@ public class ChatGptServicio {
                 }
             }
 
+            // Mismo formato que el endpoint /responder (que funciona bien): contexto + "Pregunta:".
             StringBuilder usuario = new StringBuilder();
-            usuario.append("Usa EXCLUSIVAMENTE estos extractos de la transcripcion del video para responder ")
-                   .append("(cada uno con su minuto):\n").append(contexto);
+            usuario.append("Fragmentos relevantes de la transcripcion:\n").append(contexto);
             if (entidadReciente != null && !entidadReciente.isBlank()) {
-                usuario.append("\nReferente reciente por si la pregunta usa un pronombre o alusión: ")
-                       .append(entidadReciente).append(".");
+                usuario.append("\n(Si la pregunta usa un pronombre o alusión, probablemente se refiere a: ")
+                       .append(entidadReciente).append(")");
             }
-            usuario.append("\n\nResponde SOLO a esta pregunta actual del alumno, basándote en los extractos de arriba: ")
-                   .append(pregunta);
+            usuario.append("\n\nPregunta: ").append(pregunta);
+
+            // ¡IMPRESCINDIBLE! Añadir el mensaje del usuario (contexto + pregunta actual) a la lista.
+            // Sin esta línea, a la LLM solo le llegaban el system y el historial, no la pregunta actual.
+            mensajes.add(Map.of("role", "user", "content", usuario.toString()));
 
             Map<String, Object> cuerpo = new java.util.HashMap<>();
             cuerpo.put("model", MODELO);
             cuerpo.put("temperature", 0.3);
-            cuerpo.put("max_tokens", 320);
+            cuerpo.put("max_tokens", 500);
             cuerpo.put("messages", mensajes);
             if (stream) {
                 cuerpo.put("stream", true); // OpenAI devolverá la respuesta token a token (SSE)
