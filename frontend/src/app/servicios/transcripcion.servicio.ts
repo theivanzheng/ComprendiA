@@ -73,6 +73,17 @@ export class TranscripcionServicio {
     );
   }
 
+  /**
+   * URL del canal WebSocket que emite el progreso del trabajo en tiempo real.
+   * Se deriva de urlBase: cambia http(s) por ws(s) y apunta a /ws/trabajos/{id} (raíz, sin /api).
+   */
+  urlWebSocketTrabajo(idTrabajo: string): string {
+    const origen = this.urlBase
+      .replace(/^http/, 'ws')          // http -> ws, https -> wss
+      .replace(/\/api\/?$/, '');       // quitar el sufijo /api
+    return `${origen}/ws/trabajos/${idTrabajo}`;
+  }
+
   cancelarProcesamiento(idTrabajo: string): Observable<{ idTrabajo: string; fase: string }> {
     return this.http.post<{ idTrabajo: string; fase: string }>(
       `${this.urlBase}/transcripciones/youtube/${idTrabajo}/cancelar`,

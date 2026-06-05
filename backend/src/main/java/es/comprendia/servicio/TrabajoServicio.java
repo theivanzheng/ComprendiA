@@ -3,7 +3,9 @@ package es.comprendia.servicio;
 import es.comprendia.dto.EstadoTrabajoDTO;
 import es.comprendia.dto.EstadoTrabajoDTO.Fase;
 import es.comprendia.dto.RespuestaTranscripcionDTO;
+import es.comprendia.websocket.RegistroTrabajosWebSocket;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -15,6 +17,9 @@ public class TrabajoServicio {
     private final ConcurrentHashMap<String, EstadoTrabajoDTO> trabajos = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Thread> hilos = new ConcurrentHashMap<>();
 
+    @Inject
+    RegistroTrabajosWebSocket registroWebSocket;
+
     public String crearTrabajo() {
         String id = UUID.randomUUID().toString();
         trabajos.put(id, new EstadoTrabajoDTO(id, Fase.DESCARGANDO));
@@ -23,7 +28,10 @@ public class TrabajoServicio {
 
     public void actualizarFase(String id, Fase fase) {
         EstadoTrabajoDTO estado = trabajos.get(id);
-        if (estado != null && estado.getFase() != Fase.CANCELADO) estado.setFase(fase);
+        if (estado != null && estado.getFase() != Fase.CANCELADO) {
+            estado.setFase(fase);
+            registroWebSocket.publicar(id, estado);
+        }
     }
 
     public void completar(String id, RespuestaTranscripcionDTO resultado) {
@@ -31,6 +39,7 @@ public class TrabajoServicio {
         if (estado != null && estado.getFase() != Fase.CANCELADO) {
             estado.setResultado(resultado);
             estado.setFase(Fase.COMPLETADO);
+            registroWebSocket.publicar(id, estado);
         }
         hilos.remove(id);
     }
@@ -40,6 +49,7 @@ public class TrabajoServicio {
         if (estado != null && estado.getFase() != Fase.CANCELADO) {
             estado.setError(mensaje);
             estado.setFase(Fase.ERROR);
+            registroWebSocket.publicar(id, estado);
         }
         hilos.remove(id);
     }
@@ -55,6 +65,7 @@ public class TrabajoServicio {
 
         estado.setFase(Fase.CANCELADO);
         estado.setError("Trabajo cancelado por el usuario");
+        registroWebSocket.publicar(id, estado);
 
         Thread hilo = hilos.remove(id);
         if (hilo != null) {

@@ -6,7 +6,7 @@ import { RespuestaTranscripcion } from './modelos/respuesta-transcripcion';
 import { VideoResumen } from './modelos/video-resumen';
 import { FragmentoVideo } from './modelos/fragmento-video';
 import { ResultadoBusqueda } from './modelos/resultado-busqueda';
-import { FaseTrabajo } from './modelos/estado-trabajo';
+import { EstadoTrabajo, FaseTrabajo } from './modelos/estado-trabajo';
 import { RespuestaRag } from './modelos/respuesta-rag';
 import { MensajeChat } from './modelos/mensaje-chat';
 import { Asignatura } from './modelos/asignatura';
@@ -340,6 +340,7 @@ export class App implements OnInit, OnDestroy {
   ];
 
   private intervaloPolling: ReturnType<typeof setInterval> | null = null;
+  private socketProgreso: WebSocket | null = null;
   private intervaloTiempo: ReturnType<typeof setInterval> | null = null;
   private idClaseCargando: number | null = null;
   private temporizadorSkeletonClase: ReturnType<typeof setTimeout> | null = null;
@@ -448,7 +449,7 @@ export class App implements OnInit, OnDestroy {
     this.transcripcionServicio.iniciarProcesamiento({ urlVideo: this.urlVideo }).subscribe({
       next: ({ idTrabajo }) => {
         this.trabajoActivoId = idTrabajo;
-        this.iniciarPolling(idTrabajo);
+        this.iniciarSeguimientoTrabajo(idTrabajo);
       },
       error: (err) => {
         this.error = err.error?.error ?? 'Error al conectar con el servidor';
@@ -2276,42 +2277,54 @@ export class App implements OnInit, OnDestroy {
     return Math.max(0, Math.floor(this.tiempoInicioReproductor)) || 0;
   }
 
+  // Sigue el progreso del trabajo en tiempo real por WebSocket. Si la conexión falla o se
+  // cierra antes de terminar, cae automáticamente al sondeo (polling) HTTP.
+  private iniciarSeguimientoTrabajo(idTrabajo: string): void {
+    let url: string;
+    try {
+      url = this.transcripcionServicio.urlWebSocketTrabajo(idTrabajo);
+    } catch {
+      this.iniciarPolling(idTrabajo);
+      return;
+    }
+
+    let socket: WebSocket;
+    try {
+      socket = new WebSocket(url);
+    } catch {
+      this.iniciarPolling(idTrabajo);
+      return;
+    }
+    this.socketProgreso = socket;
+
+    socket.onmessage = (evento) => {
+      try {
+        const estado = JSON.parse(evento.data) as EstadoTrabajo;
+        this.manejarEstadoTrabajo(estado);
+      } catch {
+        // Mensaje no interpretable: se ignora.
+      }
+    };
+
+    // Si el socket falla o se cierra y el trabajo sigue activo, recurrimos al polling.
+    const recurrirAFallback = () => {
+      if (this.trabajoActivoId === idTrabajo && this.socketProgreso === socket) {
+        this.cerrarSocketProgreso();
+        this.iniciarPolling(idTrabajo);
+      }
+    };
+    socket.onerror = recurrirAFallback;
+    socket.onclose = recurrirAFallback;
+  }
+
+  // Sondeo HTTP como alternativa al WebSocket. Idempotente: no arranca dos veces.
   private iniciarPolling(idTrabajo: string): void {
+    if (this.intervaloPolling !== null) {
+      return;
+    }
     this.intervaloPolling = setInterval(() => {
       this.transcripcionServicio.obtenerEstadoTrabajo(idTrabajo).subscribe({
-        next: (estado) => {
-          this.faseActual = estado.fase;
-          if (estado.fase === 'COMPLETADO') {
-            this.detenerPolling();
-            this.detenerTemporizador();
-            this.trabajoActivoId = null;
-            this.transcripcion = estado.resultado!;
-            this.cargando = false;
-            this.cargarHistorial(() => {
-              const idTranscripcion = estado.resultado?.idTranscripcion;
-              const videoRecienProcesado = idTranscripcion
-                ? this.historial.find(video => video.id === idTranscripcion)
-                : this.historial.find(video => video.youtubeId === estado.resultado!.idVideo);
-              if (videoRecienProcesado) {
-                this.seleccionarVideo(videoRecienProcesado);
-              }
-            });
-          } else if (estado.fase === 'ERROR') {
-            this.detenerPolling();
-            this.detenerTemporizador();
-            this.trabajoActivoId = null;
-            this.error = estado.error ?? 'Error desconocido en el procesamiento';
-            this.cargando = false;
-          } else if (estado.fase === 'CANCELADO') {
-            this.detenerPolling();
-            this.detenerTemporizador();
-            this.trabajoActivoId = null;
-            this.faseActual = null;
-            this.cargando = false;
-            this.mensajeCancelacion = estado.error ?? 'Analisis cancelado';
-          }
-          this.cd.detectChanges();
-        },
+        next: (estado) => this.manejarEstadoTrabajo(estado),
         error: () => {
           this.detenerPolling();
           this.detenerTemporizador();
@@ -2324,10 +2337,58 @@ export class App implements OnInit, OnDestroy {
     }, 2500);
   }
 
+  // Procesa un estado del trabajo, venga del WebSocket o del polling.
+  private manejarEstadoTrabajo(estado: EstadoTrabajo): void {
+    this.faseActual = estado.fase;
+    if (estado.fase === 'COMPLETADO') {
+      this.detenerPolling();
+      this.detenerTemporizador();
+      this.trabajoActivoId = null;
+      this.transcripcion = estado.resultado!;
+      this.cargando = false;
+      this.cargarHistorial(() => {
+        const idTranscripcion = estado.resultado?.idTranscripcion;
+        const videoRecienProcesado = idTranscripcion
+          ? this.historial.find(video => video.id === idTranscripcion)
+          : this.historial.find(video => video.youtubeId === estado.resultado!.idVideo);
+        if (videoRecienProcesado) {
+          this.seleccionarVideo(videoRecienProcesado);
+        }
+      });
+    } else if (estado.fase === 'ERROR') {
+      this.detenerPolling();
+      this.detenerTemporizador();
+      this.trabajoActivoId = null;
+      this.error = estado.error ?? 'Error desconocido en el procesamiento';
+      this.cargando = false;
+    } else if (estado.fase === 'CANCELADO') {
+      this.detenerPolling();
+      this.detenerTemporizador();
+      this.trabajoActivoId = null;
+      this.faseActual = null;
+      this.cargando = false;
+      this.mensajeCancelacion = estado.error ?? 'Analisis cancelado';
+    }
+    this.cd.detectChanges();
+  }
+
+  // Detiene cualquier seguimiento en curso: sondeo HTTP y conexión WebSocket.
   private detenerPolling(): void {
     if (this.intervaloPolling !== null) {
       clearInterval(this.intervaloPolling);
       this.intervaloPolling = null;
+    }
+    this.cerrarSocketProgreso();
+  }
+
+  private cerrarSocketProgreso(): void {
+    if (this.socketProgreso) {
+      const socket = this.socketProgreso;
+      this.socketProgreso = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      try { socket.close(); } catch { /* ya cerrado */ }
     }
   }
 
