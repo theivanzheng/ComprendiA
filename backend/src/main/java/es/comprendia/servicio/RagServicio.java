@@ -28,7 +28,7 @@ import java.util.Set;
 public class RagServicio {
 
     private static final Logger LOG = Logger.getLogger(RagServicio.class);
-    private static final int NUM_FRAGMENTOS = 5;
+    private static final int NUM_FRAGMENTOS = 8;
     private static final int NUM_FRAGMENTOS_GLOBALES = 12;
 
     private static final String SISTEMA_GLOBAL =

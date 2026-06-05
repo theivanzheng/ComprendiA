@@ -48,6 +48,12 @@ public class ChatGptServicio {
         "4) Cuando cites un momento, usa formato minuto:segundo (por ejemplo 2:14), nunca 'segundos'. " +
         "5) Nunca menciones 'fragmento', ni números entre corchetes como [1], ni 'fuentes usadas'. " +
         "6) Prohibido Markdown pesado: nada de encabezados con #, ni listas largas, ni negritas. Tono humano, no robótico. " +
+        "7) Responde SIEMPRE de forma directa a lo que se pregunta. Si el alumno pregunta si el vídeo " +
+        "habla de algo concreto (por ejemplo '¿habla de X?' o '¿menciona X?'), contesta con claridad: si X " +
+        "aparece en los extractos, di que sí, en qué minuto y qué dice; si NO aparece en los extractos, di con " +
+        "naturalidad que ahí no se menciona. " +
+        "8) Nunca respondas con evasivas como '¿sobre qué parte te gustaría hablar?'. Da siempre una respuesta " +
+        "útil con la información que tengas en los extractos. " +
         "Ejemplo de buen estilo: 'Habla del iPhone 17 Pro Max sobre el minuto 2:14. Comenta sobre todo el nuevo diseño y la cámara.' " +
         "Responde en el mismo idioma de la pregunta.";
 
