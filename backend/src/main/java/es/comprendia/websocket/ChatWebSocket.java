@@ -43,18 +43,28 @@ public class ChatWebSocket {
             idVideo = Long.valueOf(conexion.pathParam("idVideo"));
             consulta = mapeadorJson.readValue(mensaje, ConsultaConversacionDTO.class);
         } catch (Exception e) {
+            LOG.errorf(e, "[WS-Chat] Mensaje no válido (pathParam idVideo='%s', mensaje='%s')",
+                conexion.pathParam("idVideo"), recortar(mensaje));
             enviar(conexion, Map.of("tipo", "error", "mensaje", "Mensaje no válido"));
             return;
         }
 
         if (consulta.pregunta() == null || consulta.pregunta().isBlank()) {
+            LOG.warnf("[WS-Chat] Pregunta vacía (videoId=%s)", idVideo);
             enviar(conexion, Map.of("tipo", "error", "mensaje", "La pregunta no puede estar vacía"));
             return;
         }
 
+        int numHistorial = consulta.historial() == null ? 0 : consulta.historial().size();
+        LOG.infof("[WS-Chat] Pregunta recibida (videoId=%s, turnos previos=%d, entidad='%s'): %s",
+            idVideo, numHistorial, consulta.entidadReciente(), recortar(consulta.pregunta()));
+
         try {
             // 1) Recuperación (RAG) en transacción.
+            long inicio = System.currentTimeMillis();
             RagServicio.PreparacionRag preparacion = ragServicio.prepararConversacion(idVideo, consulta);
+            LOG.infof("[WS-Chat] Recuperados %d fragmentos en %d ms (videoId=%s)",
+                preparacion.fuentes().size(), System.currentTimeMillis() - inicio, idVideo);
 
             if (preparacion.fuentes().isEmpty()) {
                 enviar(conexion, Map.of("tipo", "token",
@@ -74,12 +84,23 @@ public class ChatWebSocket {
 
             // 3) Fin: se envían las fuentes (momentos relacionados del vídeo).
             enviar(conexion, Map.of("tipo", "fin", "fuentes", preparacion.fuentes()));
+            LOG.infof("[WS-Chat] Respuesta completada (videoId=%s)", idVideo);
 
         } catch (Exception e) {
-            LOG.warnf("[WS-Chat] Error respondiendo en vídeo %s: %s", idVideo, e.getMessage());
+            // Se registra el stack trace completo y la causa raíz para poder diagnosticar.
+            Throwable causa = e.getCause() != null ? e.getCause() : e;
+            LOG.errorf(e, "[WS-Chat] FALLO al responder (videoId=%s, pregunta='%s'): %s | causa: %s",
+                idVideo, recortar(consulta.pregunta()), e.toString(), causa.toString());
             enviar(conexion, Map.of("tipo", "error",
                 "mensaje", "No se pudo generar la respuesta. Inténtalo de nuevo."));
         }
+    }
+
+    // Recorta textos largos para que los logs sean legibles.
+    private String recortar(String texto) {
+        if (texto == null) return "null";
+        String limpio = texto.replaceAll("\\s+", " ").strip();
+        return limpio.length() > 200 ? limpio.substring(0, 200) + "…" : limpio;
     }
 
     private void enviar(WebSocketConnection conexion, Map<String, Object> contenido) {

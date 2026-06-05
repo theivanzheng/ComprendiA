@@ -157,11 +157,14 @@ public class ChatGptServicio {
 
         StringBuilder completo = new StringBuilder();
         try {
+            long inicio = System.currentTimeMillis();
+            LOG.info("[GPT-stream] Iniciando streaming a OpenAI");
             HttpResponse<java.util.stream.Stream<String>> respuesta =
                 clienteHttp.send(solicitud, HttpResponse.BodyHandlers.ofLines());
 
             if (respuesta.statusCode() != 200) {
                 String error = respuesta.body().reduce("", (a, b) -> a + b);
+                LOG.errorf("[GPT-stream] OpenAI respondió HTTP %d: %s", respuesta.statusCode(), error);
                 throw new IllegalStateException("Error de OpenAI (HTTP " + respuesta.statusCode() + "): " + error);
             }
 
@@ -181,10 +184,13 @@ public class ChatGptServicio {
                     // Trozo no interpretable: se ignora y se sigue con el resto del stream.
                 }
             });
+            LOG.infof("[GPT-stream] Completado en %d ms (%d caracteres)",
+                System.currentTimeMillis() - inicio, completo.length());
             return completo.toString();
 
         } catch (IOException | InterruptedException e) {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            LOG.errorf(e, "[GPT-stream] Error de red llamando a OpenAI: %s", e.toString());
             throw new IllegalStateException("Error al llamar a GPT (stream): " + e.getMessage(), e);
         }
     }
