@@ -54,6 +54,14 @@ public class ChatGptServicio {
         "naturalidad que ahí no se menciona. " +
         "8) Nunca respondas con evasivas como '¿sobre qué parte te gustaría hablar?'. Da siempre una respuesta " +
         "útil con la información que tengas en los extractos. " +
+        "9) Responde SIEMPRE a la ÚLTIMA pregunta del alumno (la que viene marcada como pregunta actual), NO a " +
+        "mensajes anteriores de la conversación. Si un mensaje previo era una URL, un saludo o texto irrelevante, " +
+        "ignóralo por completo. " +
+        "10) Eres un asistente del CONTENIDO del vídeo, no un navegador ni un asistente general: nunca digas que no " +
+        "puedes acceder a enlaces o a internet. Si el alumno pega una URL o algo que no es una pregunta sobre el " +
+        "vídeo, pídele con amabilidad que escriba su pregunta sobre el contenido. " +
+        "11) Si la respuesta está en los extractos, dala con seguridad (el dato y el minuto). El contenido puede " +
+        "estar en otro idioma (p. ej. inglés); tradúcelo y responde igualmente en el idioma de la pregunta. " +
         "Ejemplo de buen estilo: 'Habla del iPhone 17 Pro Max sobre el minuto 2:14. Comenta sobre todo el nuevo diseño y la cámara.' " +
         "Responde en el mismo idioma de la pregunta.";
 
@@ -238,12 +246,14 @@ public class ChatGptServicio {
             }
 
             StringBuilder usuario = new StringBuilder();
-            usuario.append("Extractos relevantes de la transcripcion del video:\n").append(contexto);
+            usuario.append("Usa EXCLUSIVAMENTE estos extractos de la transcripcion del video para responder ")
+                   .append("(cada uno con su minuto):\n").append(contexto);
             if (entidadReciente != null && !entidadReciente.isBlank()) {
-                usuario.append("\nContexto reciente de la conversacion (posible referente de pronombres o alusiones): ")
+                usuario.append("\nReferente reciente por si la pregunta usa un pronombre o alusión: ")
                        .append(entidadReciente).append(".");
             }
-            usuario.append("\n\nMensaje del alumno: ").append(pregunta);
+            usuario.append("\n\nResponde SOLO a esta pregunta actual del alumno, basándote en los extractos de arriba: ")
+                   .append(pregunta);
 
             Map<String, Object> cuerpo = new java.util.HashMap<>();
             cuerpo.put("model", MODELO);
