@@ -29,6 +29,10 @@ public class RagServicio {
 
     private static final Logger LOG = Logger.getLogger(RagServicio.class);
     private static final int NUM_FRAGMENTOS = 8;
+    // Si el vídeo tiene <= estos fragmentos, se le pasa la transcripción COMPLETA a la LLM
+    // (cabe de sobra en el contexto) en lugar de solo los más parecidos. Evita que se pierda
+    // información por una recuperación incompleta en vídeos cortos.
+    private static final int UMBRAL_CONTEXTO_COMPLETO = 30;
     private static final int NUM_FRAGMENTOS_GLOBALES = 12;
 
     private static final String SISTEMA_GLOBAL =
@@ -127,8 +131,8 @@ public class RagServicio {
             return new RespuestaRagDTO("Todavía no tengo la transcripción procesada para responder sobre este vídeo.", fuentes);
         }
 
-        String contexto = construirContexto(fuentes);
-        LOG.infof("[RAG] Conversacion. %d fragmentos, %d turnos previos, entidad aplicada='%s' para: %s",
+        String contexto = construirContextoParaVideo(videoId, fuentes);
+        LOG.infof("[RAG] Conversacion. %d fragmentos mostrados, %d turnos previos, entidad aplicada='%s' para: %s",
             fuentes.size(), historial.size(), entidadEfectiva, pregunta);
 
         String respuesta = chatGptServicio.completarConversacion(contexto, pregunta, historial, entidadEfectiva);
@@ -155,9 +159,9 @@ public class RagServicio {
         List<Double> vectorPregunta = embeddingServicio.generarEmbedding(textoBusqueda);
         String embeddingStr = vectorPregunta.toString().replace(" ", "");
         List<ResultadoBusquedaDTO> fuentes = fragmentoRepositorio.buscarPorSimilitud(videoId, embeddingStr, NUM_FRAGMENTOS);
-        String contexto = fuentes.isEmpty() ? "" : construirContexto(fuentes);
-        LOG.infof("[RAG-WS] Recuperados %d fragmentos (entidad aplicada='%s') para: %s",
-            fuentes.size(), entidadEfectiva, consulta.pregunta());
+        String contexto = construirContextoParaVideo(videoId, fuentes);
+        LOG.infof("[RAG-WS] Recuperados %d fragmentos para mostrar (entidad aplicada='%s'), momentos=[%s] | pregunta: %s",
+            fuentes.size(), entidadEfectiva, momentosDe(fuentes), consulta.pregunta());
         return new PreparacionRag(contexto, fuentes, entidadEfectiva);
     }
 
@@ -189,6 +193,28 @@ public class RagServicio {
     private String construirTextoBusqueda(String pregunta, String entidadReciente) {
         String entidad = entidadAplicable(pregunta, entidadReciente);
         return entidad == null ? pregunta : pregunta + " " + entidad;
+    }
+
+    /**
+     * Decide el contexto que recibe la LLM. Si el vídeo es pequeño (pocos fragmentos), se le pasa
+     * la transcripción COMPLETA (cabe de sobra) para no perder información por una recuperación
+     * incompleta. Si es grande, se usan solo los fragmentos más relevantes (RAG clásico).
+     */
+    private String construirContextoParaVideo(Long videoId, List<ResultadoBusquedaDTO> fuentes) {
+        long totalFragmentos = fragmentoRepositorio.count("video.id", videoId);
+        if (totalFragmentos > 0 && totalFragmentos <= UMBRAL_CONTEXTO_COMPLETO) {
+            List<FragmentoDTO> todos = fragmentoRepositorio.buscarPorVideoOrdenado(videoId);
+            LOG.infof("[RAG] Contexto COMPLETO: %d fragmentos (vídeo pequeño id=%s)", todos.size(), videoId);
+            return construirContexto(convertirFuentes(todos));
+        }
+        return fuentes.isEmpty() ? "" : construirContexto(fuentes);
+    }
+
+    /** Lista de momentos (m:ss) de unas fuentes, para los logs de diagnóstico. */
+    private String momentosDe(List<ResultadoBusquedaDTO> fuentes) {
+        return fuentes.stream()
+            .map(f -> formatearTiempo(f.tiempoInicio()))
+            .collect(java.util.stream.Collectors.joining(", "));
     }
 
     private RespuestaRagDTO responderGlobal(Video video, String pregunta) {
