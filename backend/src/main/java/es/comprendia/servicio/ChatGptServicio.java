@@ -78,8 +78,23 @@ public class ChatGptServicio {
             throw new IllegalStateException("OPENAI_API_KEY no configurada");
         }
 
-        String cuerpo = construirCuerpoConversacion(contexto, pregunta, historial, entidadReciente);
+        String cuerpo = construirCuerpoConversacion(contexto, pregunta, historial, entidadReciente, false);
         return enviarSolicitud(cuerpo);
+    }
+
+    /**
+     * Igual que completarConversacion, pero en modo streaming: pide a OpenAI la respuesta token
+     * a token (stream=true) y entrega cada fragmento al consumidor 'onChunk' según va llegando.
+     * Devuelve además el texto completo acumulado.
+     */
+    public String completarConversacionStream(String contexto, String pregunta,
+                                              List<MensajeChatDTO> historial, String entidadReciente,
+                                              java.util.function.Consumer<String> onChunk) {
+        if (claveApi.isBlank()) {
+            throw new IllegalStateException("OPENAI_API_KEY no configurada");
+        }
+        String cuerpo = construirCuerpoConversacion(contexto, pregunta, historial, entidadReciente, true);
+        return enviarSolicitudStream(cuerpo, onChunk);
     }
 
     public String completarPersonalizado(String sistema, String usuario, int maxTokens, double temperature) {
@@ -126,6 +141,54 @@ public class ChatGptServicio {
         }
     }
 
+    /**
+     * Envía la petición a OpenAI en modo streaming. La respuesta llega como Server-Sent Events:
+     * líneas "data: {json}" donde cada trozo trae choices[0].delta.content. Por cada token se
+     * invoca onChunk. La secuencia termina con "data: [DONE]". Devuelve el texto completo.
+     */
+    private String enviarSolicitudStream(String cuerpo, java.util.function.Consumer<String> onChunk) {
+        HttpRequest solicitud = HttpRequest.newBuilder()
+            .uri(URI.create(URL_CHAT))
+            .header("Authorization", "Bearer " + claveApi)
+            .header("Content-Type", "application/json")
+            .timeout(Duration.ofSeconds(90))
+            .POST(HttpRequest.BodyPublishers.ofString(cuerpo))
+            .build();
+
+        StringBuilder completo = new StringBuilder();
+        try {
+            HttpResponse<java.util.stream.Stream<String>> respuesta =
+                clienteHttp.send(solicitud, HttpResponse.BodyHandlers.ofLines());
+
+            if (respuesta.statusCode() != 200) {
+                String error = respuesta.body().reduce("", (a, b) -> a + b);
+                throw new IllegalStateException("Error de OpenAI (HTTP " + respuesta.statusCode() + "): " + error);
+            }
+
+            respuesta.body().forEach(linea -> {
+                if (linea == null || !linea.startsWith("data:")) return;
+                String dato = linea.substring("data:".length()).trim();
+                if (dato.isEmpty() || dato.equals("[DONE]")) return;
+                try {
+                    JsonNode nodo = mapeadorJson.readTree(dato);
+                    JsonNode contenido = nodo.path("choices").path(0).path("delta").path("content");
+                    if (contenido.isTextual()) {
+                        String token = contenido.asText();
+                        completo.append(token);
+                        onChunk.accept(token);
+                    }
+                } catch (Exception ignorado) {
+                    // Trozo no interpretable: se ignora y se sigue con el resto del stream.
+                }
+            });
+            return completo.toString();
+
+        } catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw new IllegalStateException("Error al llamar a GPT (stream): " + e.getMessage(), e);
+        }
+    }
+
     private String construirCuerpo(String contexto, String pregunta) {
         try {
             return mapeadorJson.writeValueAsString(Map.of(
@@ -145,7 +208,8 @@ public class ChatGptServicio {
     }
 
     private String construirCuerpoConversacion(String contexto, String pregunta,
-                                              List<MensajeChatDTO> historial, String entidadReciente) {
+                                              List<MensajeChatDTO> historial, String entidadReciente,
+                                              boolean stream) {
         try {
             List<Map<String, String>> mensajes = new ArrayList<>();
             mensajes.add(Map.of("role", "system", "content", SISTEMA_CONVERSACION));
@@ -174,6 +238,9 @@ public class ChatGptServicio {
             cuerpo.put("temperature", 0.3);
             cuerpo.put("max_tokens", 320);
             cuerpo.put("messages", mensajes);
+            if (stream) {
+                cuerpo.put("stream", true); // OpenAI devolverá la respuesta token a token (SSE)
+            }
             return mapeadorJson.writeValueAsString(cuerpo);
         } catch (Exception e) {
             throw new IllegalStateException("Error al construir el cuerpo conversacional", e);

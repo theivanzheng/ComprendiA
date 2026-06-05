@@ -134,6 +134,29 @@ public class RagServicio {
         return new RespuestaRagDTO(respuesta, fuentes);
     }
 
+    /** Resultado de la recuperación: el contexto (extractos) y las fuentes (momentos del vídeo). */
+    public record PreparacionRag(String contexto, List<ResultadoBusquedaDTO> fuentes) {}
+
+    /**
+     * Fase de RECUPERACIÓN del RAG, separada de la generación. Hace la búsqueda semántica y
+     * devuelve el contexto y las fuentes, SIN llamar a la LLM. Se usa en el chat por WebSocket:
+     * la recuperación va en transacción (acceso a BD) y la generación en streaming va fuera.
+     */
+    @Transactional
+    public PreparacionRag prepararConversacion(Long videoId, ConsultaConversacionDTO consulta) {
+        Video video = videoRepositorio.findById(videoId);
+        if (video == null) {
+            throw new NotFoundException("Vídeo con id " + videoId + " no encontrado");
+        }
+        String textoBusqueda = construirTextoBusqueda(consulta.pregunta(), consulta.entidadReciente());
+        List<Double> vectorPregunta = embeddingServicio.generarEmbedding(textoBusqueda);
+        String embeddingStr = vectorPregunta.toString().replace(" ", "");
+        List<ResultadoBusquedaDTO> fuentes = fragmentoRepositorio.buscarPorSimilitud(videoId, embeddingStr, NUM_FRAGMENTOS);
+        String contexto = fuentes.isEmpty() ? "" : construirContexto(fuentes);
+        LOG.infof("[RAG-WS] Recuperados %d fragmentos para: %s", fuentes.size(), consulta.pregunta());
+        return new PreparacionRag(contexto, fuentes);
+    }
+
     /**
      * Decide el texto que se usa para la búsqueda semántica. Si la pregunta es corta o parece una
      * referencia implícita (poco contenido propio), se le añade la entidad reciente.

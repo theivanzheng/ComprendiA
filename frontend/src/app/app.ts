@@ -341,6 +341,7 @@ export class App implements OnInit, OnDestroy {
 
   private intervaloPolling: ReturnType<typeof setInterval> | null = null;
   private socketProgreso: WebSocket | null = null;
+  private socketChat: WebSocket | null = null;
   private intervaloTiempo: ReturnType<typeof setInterval> | null = null;
   private idClaseCargando: number | null = null;
   private temporizadorSkeletonClase: ReturnType<typeof setTimeout> | null = null;
@@ -841,6 +842,7 @@ export class App implements OnInit, OnDestroy {
   enviarMensajeChat(): void {
     if (!this.pregunta.trim() || !this.videoSeleccionado || this.cargandoBusqueda) return;
     const preguntaActual = this.pregunta.trim();
+    const idVideo = this.videoSeleccionado.id;
 
     // Se añade el mensaje del usuario al hilo visible (no desaparece nada de lo anterior).
     this.mensajesChat.push({ rol: 'user', contenido: preguntaActual, timestamp: Date.now() });
@@ -851,38 +853,136 @@ export class App implements OnInit, OnDestroy {
       .slice(0, -1)
       .slice(-this.MAX_TURNOS_MEMORIA)
       .map((m) => ({ rol: m.rol, contenido: m.contenido }));
+    const entidad = this.contextoConversacion.ultimaEntidad;
 
     this.pregunta = '';
     this.cargandoBusqueda = true;
     this.errorBusqueda = '';
     this.desplazarChatAlFinal();
 
-    this.transcripcionServicio
-      .conversar(this.videoSeleccionado.id, preguntaActual, historial, this.contextoConversacion.ultimaEntidad)
-      .subscribe({
-        next: (respuesta) => {
-          this.mensajesChat.push({
-            rol: 'assistant',
-            contenido: respuesta.respuesta,
-            fuentes: respuesta.fuentes,
-            timestamp: Date.now()
-          });
-          this.actualizarContextoConversacion(preguntaActual, respuesta);
-          this.cargandoBusqueda = false;
-          this.cd.detectChanges();
-          this.desplazarChatAlFinal();
-        },
-        error: (err) => {
-          this.errorBusqueda = err.error?.error ?? 'Error al generar la respuesta';
-          this.cargandoBusqueda = false;
-          this.cd.detectChanges();
-          this.desplazarChatAlFinal();
+    // Intentar por WebSocket (respuesta en streaming). Si falla, se cae al HTTP.
+    let url: string;
+    try {
+      url = this.transcripcionServicio.urlWebSocketChat(idVideo);
+    } catch {
+      this.enviarMensajeChatHttp(idVideo, preguntaActual, historial, entidad);
+      return;
+    }
+    let socket: WebSocket;
+    try {
+      socket = new WebSocket(url);
+    } catch {
+      this.enviarMensajeChatHttp(idVideo, preguntaActual, historial, entidad);
+      return;
+    }
+    this.cerrarSocketChat();
+    this.socketChat = socket;
+
+    let mensajeAsistente: MensajeChat | null = null;
+    let recibioToken = false;
+    let terminado = false;
+
+    socket.onopen = () => {
+      socket.send(JSON.stringify({ pregunta: preguntaActual, historial, entidadReciente: entidad }));
+    };
+
+    socket.onmessage = (evento) => {
+      let datos: { tipo: string; contenido?: string; fuentes?: ResultadoBusqueda[]; mensaje?: string };
+      try {
+        datos = JSON.parse(evento.data);
+      } catch {
+        return;
+      }
+      if (datos.tipo === 'token') {
+        if (!mensajeAsistente) {
+          // Primera "palabra": se crea la burbuja del asistente que se irá rellenando.
+          mensajeAsistente = { rol: 'assistant', contenido: '', timestamp: Date.now() };
+          this.mensajesChat.push(mensajeAsistente);
         }
-      });
+        recibioToken = true;
+        mensajeAsistente.contenido += datos.contenido ?? '';
+        this.cd.detectChanges();
+        this.desplazarChatAlFinal();
+      } else if (datos.tipo === 'fin') {
+        terminado = true;
+        if (mensajeAsistente) {
+          mensajeAsistente.fuentes = datos.fuentes ?? [];
+          this.actualizarContextoConversacion(preguntaActual,
+            { respuesta: mensajeAsistente.contenido, fuentes: mensajeAsistente.fuentes ?? [] });
+        }
+        this.cargandoBusqueda = false;
+        this.cd.detectChanges();
+        this.desplazarChatAlFinal();
+        this.cerrarSocketChat();
+      } else if (datos.tipo === 'error') {
+        terminado = true;
+        this.errorBusqueda = datos.mensaje ?? 'Error al generar la respuesta';
+        this.cargandoBusqueda = false;
+        this.cd.detectChanges();
+        this.cerrarSocketChat();
+      }
+    };
+
+    const alFallar = () => {
+      if (terminado) return;
+      this.cerrarSocketChat();
+      if (recibioToken) {
+        // Se cortó a mitad: damos por terminado con lo que llegó.
+        this.cargandoBusqueda = false;
+        this.cd.detectChanges();
+      } else {
+        // No llegó nada: probamos por HTTP.
+        this.enviarMensajeChatHttp(idVideo, preguntaActual, historial, entidad);
+      }
+    };
+    socket.onerror = alFallar;
+    socket.onclose = alFallar;
+  }
+
+  // Alternativa por HTTP (sin streaming) si el WebSocket no está disponible.
+  private enviarMensajeChatHttp(
+    idVideo: number,
+    preguntaActual: string,
+    historial: { rol: string; contenido: string }[],
+    entidad: string | null
+  ): void {
+    this.transcripcionServicio.conversar(idVideo, preguntaActual, historial, entidad).subscribe({
+      next: (respuesta) => {
+        this.mensajesChat.push({
+          rol: 'assistant',
+          contenido: respuesta.respuesta,
+          fuentes: respuesta.fuentes,
+          timestamp: Date.now()
+        });
+        this.actualizarContextoConversacion(preguntaActual, respuesta);
+        this.cargandoBusqueda = false;
+        this.cd.detectChanges();
+        this.desplazarChatAlFinal();
+      },
+      error: (err) => {
+        this.errorBusqueda = err.error?.error ?? 'Error al generar la respuesta';
+        this.cargandoBusqueda = false;
+        this.cd.detectChanges();
+        this.desplazarChatAlFinal();
+      }
+    });
+  }
+
+  private cerrarSocketChat(): void {
+    if (this.socketChat) {
+      const socket = this.socketChat;
+      this.socketChat = null;
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      try { socket.close(); } catch { /* ya cerrado */ }
+    }
   }
 
   /** Reinicia toda la conversación (historial visible + memoria corta). Al salir de la clase. */
   private reiniciarChat(): void {
+    this.cerrarSocketChat();
     this.mensajesChat = [];
     this.contextoConversacion = {
       ultimaEntidad: null,

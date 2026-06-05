@@ -84,6 +84,14 @@ export class TranscripcionServicio {
     return `${origen}/ws/trabajos/${idTrabajo}`;
   }
 
+  /** URL del canal WebSocket del chat en streaming: /ws/chat/{idVideo}. */
+  urlWebSocketChat(idVideo: number): string {
+    const origen = this.urlBase
+      .replace(/^http/, 'ws')
+      .replace(/\/api\/?$/, '');
+    return `${origen}/ws/chat/${idVideo}`;
+  }
+
   cancelarProcesamiento(idTrabajo: string): Observable<{ idTrabajo: string; fase: string }> {
     return this.http.post<{ idTrabajo: string; fase: string }>(
       `${this.urlBase}/transcripciones/youtube/${idTrabajo}/cancelar`,
