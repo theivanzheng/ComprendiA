@@ -689,6 +689,21 @@
   margin-top: 0.72rem;
 }
 
+/* El pill de asignatura muestra el nombre completo (sin recortar). Si no cabe, los
+   demás pills bajan a la línea siguiente gracias al flex-wrap del contenedor. */
+.class-meta-pill.asignatura-pill {
+  max-width: none;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+.class-meta-pill.asignatura-pill span {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
 .meta-pill-shell {
   position: relative;
 }
