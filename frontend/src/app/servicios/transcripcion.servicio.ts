@@ -53,6 +53,12 @@ export interface SolicitudConcepto {
   tiempoFin?: number;
 }
 
+export interface ModeloChat {
+  id: string;
+  nombre: string;
+  disponible: boolean;
+}
+
 @Injectable({ providedIn: 'root' })
 export class TranscripcionServicio {
 
@@ -254,11 +260,17 @@ export class TranscripcionServicio {
     id: number,
     pregunta: string,
     historial: { rol: string; contenido: string }[],
-    entidadReciente: string | null
+    entidadReciente: string | null,
+    modelo: string | null
   ): Observable<RespuestaRag> {
     return this.http.post<RespuestaRag>(
       `${this.urlBase}/transcripciones/${id}/conversar`,
-      { pregunta, historial, entidadReciente }
+      { pregunta, historial, entidadReciente, modelo }
     );
+  }
+
+  /** Modelos de chat disponibles para el selector (multi-modelo). */
+  obtenerModelos(): Observable<ModeloChat[]> {
+    return this.http.get<ModeloChat[]>(`${this.urlBase}/modelos`);
   }
 }

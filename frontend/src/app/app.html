@@ -647,6 +647,24 @@
               }
             </div>
 
+            @if (modelosChat.length > 1) {
+              <div class="chat-modelo">
+                <label for="selectorModelo">Modelo:</label>
+                <select
+                  id="selectorModelo"
+                  class="chat-modelo-select"
+                  [(ngModel)]="modeloChatSeleccionado"
+                  [disabled]="cargandoBusqueda"
+                >
+                  @for (modelo of modelosChat; track modelo.id) {
+                    <option [value]="modelo.id" [disabled]="!modelo.disponible">
+                      {{ modelo.nombre }}{{ modelo.disponible ? '' : ' (no configurado)' }}
+                    </option>
+                  }
+                </select>
+              </div>
+            }
+
             <div class="chat-input">
               <textarea
                 #campoChat

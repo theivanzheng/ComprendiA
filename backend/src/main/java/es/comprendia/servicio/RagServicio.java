@@ -135,7 +135,7 @@ public class RagServicio {
         LOG.infof("[RAG] Conversacion. %d fragmentos mostrados, %d turnos previos, entidad aplicada='%s' para: %s",
             fuentes.size(), historial.size(), entidadEfectiva, pregunta);
 
-        String respuesta = chatGptServicio.completarConversacion(contexto, pregunta, historial, entidadEfectiva);
+        String respuesta = chatGptServicio.completarConversacion(contexto, pregunta, historial, entidadEfectiva, consulta.modelo());
         return new RespuestaRagDTO(respuesta, fuentes);
     }
 

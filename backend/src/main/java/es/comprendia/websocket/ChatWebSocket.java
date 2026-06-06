@@ -79,6 +79,7 @@ public class ChatWebSocket {
                 consulta.pregunta(),
                 consulta.historial(),
                 preparacion.entidadEfectiva(),   // null salvo que la pregunta sea referencia implícita
+                consulta.modelo(),               // proveedor elegido en el selector ("openai"/"gemini")
                 token -> enviar(conexion, Map.of("tipo", "token", "contenido", token))
             );
 
@@ -104,13 +105,26 @@ public class ChatWebSocket {
         return limpio.length() > 200 ? limpio.substring(0, 200) + "…" : limpio;
     }
 
+    /**
+     * Envía un mensaje al cliente de forma NO bloqueante.
+     *
+     * Los tokens del streaming llegan en el hilo del cliente de OpenAI (un event-loop de Vert.x);
+     * desde ahí no se puede usar {@code sendTextAndAwait} (bloquear el event-loop lanza excepción y
+     * el token se perdía en silencio). {@code sendText} devuelve un {@code Uni} y se puede usar desde
+     * cualquier hilo. El orden de envío se conserva porque las escrituras se encolan en orden de
+     * submission sobre la misma conexión.
+     */
     private void enviar(WebSocketConnection conexion, Map<String, Object> contenido) {
+        if (!conexion.isOpen()) {
+            return;
+        }
         try {
-            if (conexion.isOpen()) {
-                conexion.sendTextAndAwait(mapeadorJson.writeValueAsString(contenido));
-            }
+            String json = mapeadorJson.writeValueAsString(contenido);
+            conexion.sendText(json).subscribe().with(
+                exito -> { /* enviado */ },
+                error -> LOG.errorf(error, "[WS-Chat] Envío fallido"));
         } catch (Exception e) {
-            LOG.debugf("[WS-Chat] Envío fallido: %s", e.getMessage());
+            LOG.errorf(e, "[WS-Chat] No se pudo serializar el mensaje a enviar");
         }
     }
 }

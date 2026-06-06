@@ -1,7 +1,7 @@
 import { ChangeDetectorRef, Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';
-import { TranscripcionServicio, VideoMetadata, SolicitudAsignatura } from './servicios/transcripcion.servicio';
+import { TranscripcionServicio, VideoMetadata, SolicitudAsignatura, ModeloChat } from './servicios/transcripcion.servicio';
 import { RespuestaTranscripcion } from './modelos/respuesta-transcripcion';
 import { VideoResumen } from './modelos/video-resumen';
 import { FragmentoVideo } from './modelos/fragmento-video';
@@ -131,6 +131,9 @@ export class App implements OnInit, OnDestroy {
   protected mensajesChat: MensajeChat[] = [];
   // Cuántos turnos previos se envían al backend como memoria corta.
   private readonly MAX_TURNOS_MEMORIA = 8;
+  // Multi-modelo: modelos de chat disponibles y el elegido en el selector.
+  protected modelosChat: ModeloChat[] = [];
+  protected modeloChatSeleccionado = 'openai';
   // Memoria ligera para resolver referencias implícitas ("el móvil", "ese reloj", "y después?").
   protected contextoConversacion: {
     ultimaEntidad: string | null;
@@ -383,6 +386,23 @@ export class App implements OnInit, OnDestroy {
     this.cargarHistorial();
     // Precarga asignaturas para el selector de clase (sin mostrar spinner de la página de cursos)
     this.cargarAsignaturasEnSilencio();
+    this.cargarModelosChat();
+  }
+
+  // Carga los modelos de chat disponibles para el selector (multi-modelo).
+  private cargarModelosChat(): void {
+    this.transcripcionServicio.obtenerModelos().subscribe({
+      next: (modelos) => {
+        this.modelosChat = modelos;
+        const disponibles = modelos.filter((m) => m.disponible);
+        // Si el modelo elegido no está disponible, se usa el primero disponible.
+        if (!disponibles.some((m) => m.id === this.modeloChatSeleccionado) && disponibles.length > 0) {
+          this.modeloChatSeleccionado = disponibles[0].id;
+        }
+        this.cd.detectChanges();
+      },
+      error: () => { /* si falla, el selector simplemente no se muestra */ }
+    });
   }
 
   ngOnDestroy(): void {
@@ -926,7 +946,10 @@ export class App implements OnInit, OnDestroy {
     let terminado = false;
 
     socket.onopen = () => {
-      socket.send(JSON.stringify({ pregunta: preguntaActual, historial, entidadReciente: entidad }));
+      socket.send(JSON.stringify({
+        pregunta: preguntaActual, historial, entidadReciente: entidad,
+        modelo: this.modeloChatSeleccionado
+      }));
     };
 
     socket.onmessage = (evento) => {
@@ -989,7 +1012,7 @@ export class App implements OnInit, OnDestroy {
     historial: { rol: string; contenido: string }[],
     entidad: string | null
   ): void {
-    this.transcripcionServicio.conversar(idVideo, preguntaActual, historial, entidad).subscribe({
+    this.transcripcionServicio.conversar(idVideo, preguntaActual, historial, entidad, this.modeloChatSeleccionado).subscribe({
       next: (respuesta) => {
         this.mensajesChat.push({
           rol: 'assistant',

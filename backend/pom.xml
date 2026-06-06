@@ -46,6 +46,12 @@
       <artifactId>quarkus-langchain4j-openai</artifactId>
       <version>${quarkus.langchain4j.version}</version>
     </dependency>
+    <!-- Multi-modelo: Google Gemini (librería de LangChain4j, se construye el modelo a mano) -->
+    <dependency>
+      <groupId>dev.langchain4j</groupId>
+      <artifactId>langchain4j-google-ai-gemini</artifactId>
+      <version>1.0.0-beta1</version>
+    </dependency>
     <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-arc</artifactId>

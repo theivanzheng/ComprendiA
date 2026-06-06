@@ -66,4 +66,47 @@ método) para no romper el resto del sistema. Tras cada capa: compilar + tests e
 - **Firmas públicas intactas:** `RagServicio`, `AnalisisClaseServicio` y `ChatWebSocket` no cambian.
 - **Resultado:** compila y los 19 tests pasan.
 
-### Paso 3 — RAG con LangChain4j (opcional, pendiente)
+### Paso 3 — Multi-modelo (OpenAI ↔ Google Gemini) ✅
+
+Aprovechando que LangChain4j abstrae el modelo, el **chat** del asistente ahora puede
+cambiarse entre proveedores desde un selector en el frontend. Decisiones clave:
+
+- **Solo afecta al chat/generación, NO a los embeddings.** Los vectores almacenados viven en el
+  espacio de `text-embedding-3-small` (OpenAI); cambiar de modelo de embeddings invalidaría la
+  recuperación (RAG) y obligaría a reprocesar todos los vídeos. Por eso los embeddings siguen fijos.
+- **Proveedores:** OpenAI (`gpt-4o-mini`, por defecto) y Google Gemini (`gemini-1.5-flash`).
+- **El análisis estructurado** (`completarEstructurado`, que exige `json_object`) usa **siempre
+  OpenAI**, porque el modo JSON garantizado es propio de OpenAI.
+
+**Dependencia** (`pom.xml`): `dev.langchain4j:langchain4j-google-ai-gemini:1.0.0-beta1`
+(la versión del core de LangChain4j que arrastra `quarkus-langchain4j-openai` 0.25.0, verificada
+con `mvn dependency:tree`). El modelo de Gemini se construye a mano con
+`GoogleAiGeminiChatModel.builder()` / `GoogleAiGeminiStreamingChatModel.builder()`.
+
+**Configuración** (`application.properties`):
+```
+comprendia.gemini.api.clave=${GEMINI_API_KEY:}
+comprendia.chat.modelo-por-defecto=openai
+```
+La clave de Gemini se inyecta como `Optional<String>` (la cadena vacía la interpreta el conversor
+de SmallRye como `null`, lo que rompía el arranque con `@ConfigProperty String`).
+
+**Backend:**
+- `ChatGptServicio`: helpers `chat(proveedor, maxTokens, temp, json)` y
+  `chatStream(proveedor, maxTokens, temp)` construyen y cachean el modelo por
+  `(proveedor|params)`. `proveedor(...)` normaliza y **cae a OpenAI** si se pide Gemini sin clave.
+  Nuevo `modelosDisponibles()` → `List<ModeloChatDTO>` (id, nombre, disponible).
+- `ModeloChatDTO` (record) y endpoint REST `GET /api/modelos`.
+- El parámetro `modelo` se propaga: `ConsultaConversacionDTO.modelo` →
+  `RagServicio.responderConversacion` → `completarConversacion`, y por WebSocket
+  `ChatWebSocket` → `completarConversacionStream`.
+
+**Frontend** (Angular):
+- `TranscripcionServicio.obtenerModelos()` (`GET /api/modelos`) e interfaz `ModeloChat`.
+- Selector `<select>` sobre el input del chat (solo se muestra si hay >1 modelo); las opciones sin
+  clave aparecen deshabilitadas ("no configurado").
+- El modelo elegido se envía tanto en el payload del WebSocket como en la llamada HTTP de respaldo.
+
+**Resultado:** backend compila y los 19 tests pasan; el frontend compila.
+
+### Paso 4 — RAG con LangChain4j (opcional, pendiente)

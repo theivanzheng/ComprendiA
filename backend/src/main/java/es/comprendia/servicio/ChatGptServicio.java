@@ -7,10 +7,13 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.StreamingResponseHandler;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
+import dev.langchain4j.model.googleai.GoogleAiGeminiStreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.model.output.Response;
 import es.comprendia.dto.MensajeChatDTO;
+import es.comprendia.dto.ModeloChatDTO;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
@@ -19,6 +22,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -37,7 +41,8 @@ import java.util.function.Consumer;
 public class ChatGptServicio {
 
     private static final Logger LOG = Logger.getLogger(ChatGptServicio.class);
-    private static final String MODELO = "gpt-4o-mini";
+    private static final String MODELO_OPENAI = "gpt-4o-mini";
+    private static final String MODELO_GEMINI = "gemini-2.5-flash-lite";
 
     private static final String SISTEMA =
         "Eres un asistente educativo cercano que ayuda a un alumno a entender una clase grabada. " +
@@ -69,62 +74,114 @@ public class ChatGptServicio {
         "Responde en el mismo idioma de la pregunta. Sé breve y claro.";
 
     @ConfigProperty(name = "comprendia.openai.api.clave", defaultValue = "")
-    String claveApi;
+    String claveOpenai;
 
-    // Modelos de LangChain4j cacheados por combinación de parámetros (maxTokens|temp|json).
+    @ConfigProperty(name = "comprendia.gemini.api.clave")
+    Optional<String> claveGeminiOpt;
+
+    // Clave de Gemini ya resuelta y saneada (cadena vacía si no está configurada).
+    private String claveGemini() {
+        return limpiarClave(claveGeminiOpt.orElse(""));
+    }
+
+    /**
+     * Quita espacios y comillas envolventes que pueden colarse al leer la clave de un .env
+     * (p. ej. GEMINI_API_KEY='AQ...'). Esas comillas invalidarían la clave ante Google.
+     */
+    private static String limpiarClave(String clave) {
+        if (clave == null) {
+            return "";
+        }
+        String limpia = clave.strip();
+        if (limpia.length() >= 2
+                && ((limpia.startsWith("'") && limpia.endsWith("'"))
+                 || (limpia.startsWith("\"") && limpia.endsWith("\"")))) {
+            limpia = limpia.substring(1, limpia.length() - 1).strip();
+        }
+        return limpia;
+    }
+
+    @ConfigProperty(name = "comprendia.chat.modelo-por-defecto", defaultValue = "openai")
+    String modeloPorDefecto;
+
+    // Modelos de LangChain4j cacheados por (proveedor|maxTokens|temp|json).
     private final Map<String, ChatLanguageModel> cacheChat = new ConcurrentHashMap<>();
     private final Map<String, StreamingChatLanguageModel> cacheStream = new ConcurrentHashMap<>();
 
-    private ChatLanguageModel chat(int maxTokens, double temperature, boolean json) {
-        return cacheChat.computeIfAbsent(maxTokens + "|" + temperature + "|" + json, clave -> {
+    /** Lista de modelos disponibles para el selector del frontend (multi-modelo). */
+    public List<ModeloChatDTO> modelosDisponibles() {
+        return List.of(
+            new ModeloChatDTO("openai", "OpenAI (gpt-4o-mini)", !claveOpenai.isBlank()),
+            new ModeloChatDTO("gemini", "Google Gemini (gemini-2.5-flash-lite)", !claveGemini().isBlank())
+        );
+    }
+
+    // Normaliza el proveedor pedido; si Gemini no tiene clave, cae a OpenAI.
+    private String proveedor(String solicitado) {
+        String p = (solicitado == null || solicitado.isBlank()) ? modeloPorDefecto : solicitado;
+        p = p.toLowerCase().trim();
+        if ("gemini".equals(p) && !claveGemini().isBlank()) {
+            return "gemini";
+        }
+        return "openai";
+    }
+
+    private ChatLanguageModel chat(String solicitado, int maxTokens, double temperature, boolean json) {
+        String p = proveedor(solicitado);
+        return cacheChat.computeIfAbsent(p + "|" + maxTokens + "|" + temperature + "|" + json, clave -> {
+            if ("gemini".equals(p)) {
+                return GoogleAiGeminiChatModel.builder()
+                    .apiKey(claveGemini()).modelName(MODELO_GEMINI)
+                    .temperature(temperature).maxOutputTokens(maxTokens).build();
+            }
             OpenAiChatModel.OpenAiChatModelBuilder constructor = OpenAiChatModel.builder()
-                .apiKey(claveApi)
-                .modelName(MODELO)
-                .temperature(temperature)
-                .maxTokens(maxTokens)
-                .timeout(Duration.ofSeconds(90));
+                .apiKey(limpiarClave(claveOpenai)).modelName(MODELO_OPENAI)
+                .temperature(temperature).maxTokens(maxTokens).timeout(Duration.ofSeconds(90));
             if (json) {
-                constructor.responseFormat("json_object"); // respuesta JSON garantizada
+                constructor.responseFormat("json_object"); // respuesta JSON garantizada (solo OpenAI)
             }
             return constructor.build();
         });
     }
 
-    private StreamingChatLanguageModel chatStream(int maxTokens, double temperature) {
-        return cacheStream.computeIfAbsent(maxTokens + "|" + temperature, clave ->
-            OpenAiStreamingChatModel.builder()
-                .apiKey(claveApi)
-                .modelName(MODELO)
-                .temperature(temperature)
-                .maxTokens(maxTokens)
-                .timeout(Duration.ofSeconds(120))
-                .build());
+    private StreamingChatLanguageModel chatStream(String solicitado, int maxTokens, double temperature) {
+        String p = proveedor(solicitado);
+        return cacheStream.computeIfAbsent(p + "|" + maxTokens + "|" + temperature, clave -> {
+            if ("gemini".equals(p)) {
+                return GoogleAiGeminiStreamingChatModel.builder()
+                    .apiKey(claveGemini()).modelName(MODELO_GEMINI)
+                    .temperature(temperature).maxOutputTokens(maxTokens).build();
+            }
+            return OpenAiStreamingChatModel.builder()
+                .apiKey(limpiarClave(claveOpenai)).modelName(MODELO_OPENAI)
+                .temperature(temperature).maxTokens(maxTokens).timeout(Duration.ofSeconds(120)).build();
+        });
     }
 
     public String completar(String contexto, String pregunta) {
         List<ChatMessage> mensajes = List.of(
             SystemMessage.from(SISTEMA),
             UserMessage.from("Fragmentos relevantes de la transcripcion:\n" + contexto + "\n\nPregunta: " + pregunta));
-        return generar(chat(600, 0.3, false), mensajes);
+        return generar(chat(null, 600, 0.3, false), mensajes);
     }
 
     /**
-     * Respuesta conversacional: incluye el historial reciente (memoria corta del frontend)
-     * y una pista de entidad reciente para resolver referencias implícitas.
+     * Respuesta conversacional: incluye el historial reciente (memoria corta del frontend),
+     * una pista de entidad reciente para resolver referencias implícitas, y el modelo elegido.
      */
     public String completarConversacion(String contexto, String pregunta,
-                                        List<MensajeChatDTO> historial, String entidadReciente) {
-        return generar(chat(500, 0.3, false),
+                                        List<MensajeChatDTO> historial, String entidadReciente, String modelo) {
+        return generar(chat(modelo, 500, 0.3, false),
             mensajesConversacion(contexto, pregunta, historial, entidadReciente));
     }
 
     /**
      * Igual que completarConversacion, pero en streaming: cada token llega por 'onChunk' según
-     * lo va generando el modelo. Devuelve el texto completo cuando termina.
+     * lo va generando el modelo elegido. Devuelve el texto completo cuando termina.
      */
     public String completarConversacionStream(String contexto, String pregunta,
                                               List<MensajeChatDTO> historial, String entidadReciente,
-                                              Consumer<String> onChunk) {
+                                              String modelo, Consumer<String> onChunk) {
         int turnos = historial == null ? 0 : historial.size();
         int largoContexto = contexto == null ? 0 : contexto.length();
         LOG.infof("[GPT-stream] contexto=%d chars, historial=%d turnos, entidad='%s', pregunta='%s'",
@@ -135,7 +192,7 @@ public class ChatGptServicio {
         StringBuilder completo = new StringBuilder();
         long inicio = System.currentTimeMillis();
 
-        chatStream(500, 0.3).generate(mensajes, new StreamingResponseHandler<AiMessage>() {
+        chatStream(modelo, 500, 0.3).generate(mensajes, new StreamingResponseHandler<AiMessage>() {
             @Override public void onNext(String token) {
                 completo.append(token);
                 onChunk.accept(token);
@@ -160,12 +217,13 @@ public class ChatGptServicio {
     }
 
     public String completarPersonalizado(String sistema, String usuario, int maxTokens, double temperature) {
-        return generar(chat(maxTokens, temperature, false),
+        return generar(chat(null, maxTokens, temperature, false),
             List.of(SystemMessage.from(sistema), UserMessage.from(usuario)));
     }
 
     public String completarEstructurado(String sistema, String usuario, int maxTokens) {
-        return generar(chat(maxTokens, 0.2, true),
+        // El análisis estructurado exige JSON garantizado → siempre OpenAI.
+        return generar(chat("openai", maxTokens, 0.2, true),
             List.of(SystemMessage.from(sistema), UserMessage.from(usuario)));
     }
 
