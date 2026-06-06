@@ -1096,6 +1096,90 @@ export class App implements OnInit, OnDestroy {
     return `${m}:${s.toString().padStart(2, '0')}`;
   }
 
+  // ── Chat: render de Markdown básico y textarea autoexpandible ───────────────
+
+  /**
+   * Convierte Markdown básico a HTML seguro para mostrar las respuestas del asistente.
+   * Primero ESCAPA todo el texto (neutraliza cualquier HTML/script -> sin XSS) y luego aplica
+   * unas pocas reglas (negrita, cursiva, código, listas, saltos de línea, fórmulas simples).
+   * El resultado se inserta con [innerHTML], y Angular lo sanea de nuevo por su cuenta.
+   */
+  renderizarMarkdown(texto: string | null | undefined): string {
+    if (!texto) return '';
+    const escapar = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    const enLinea = (linea: string): string => {
+      let t = escapar(linea);
+      t = t.replace(/`([^`]+)`/g, '<code>$1</code>');               // `código`
+      t = t.replace(/\\\(([\s\S]*?)\\\)/g, '<em>$1</em>');           // \( fórmula \)
+      t = t.replace(/\\\[([\s\S]*?)\\\]/g, '<em>$1</em>');           // \[ fórmula \]
+      t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');      // **negrita**
+      t = t.replace(/__([^_]+)__/g, '<strong>$1</strong>');         // __negrita__
+      t = t.replace(/\*([^*\s][^*]*?)\*/g, '<em>$1</em>');           // *cursiva*
+      return t;
+    };
+
+    const lineas = texto.split('\n');
+    const html: string[] = [];
+    let lista: 'ul' | 'ol' | null = null;
+    let enBloqueCodigo = false;
+    let buffer: string[] = [];
+    const cerrarLista = () => { if (lista) { html.push(`</${lista}>`); lista = null; } };
+
+    for (const linea of lineas) {
+      if (/^\s*```/.test(linea)) {
+        if (!enBloqueCodigo) { cerrarLista(); enBloqueCodigo = true; buffer = []; }
+        else { html.push('<pre><code>' + escapar(buffer.join('\n')) + '</code></pre>'); enBloqueCodigo = false; }
+        continue;
+      }
+      if (enBloqueCodigo) { buffer.push(linea); continue; }
+
+      const numerada = linea.match(/^\s*\d+\.\s+(.*)$/);
+      const conGuion = linea.match(/^\s*[-*]\s+(.*)$/);
+      if (numerada) {
+        if (lista !== 'ol') { cerrarLista(); html.push('<ol>'); lista = 'ol'; }
+        html.push('<li>' + enLinea(numerada[1]) + '</li>');
+      } else if (conGuion) {
+        if (lista !== 'ul') { cerrarLista(); html.push('<ul>'); lista = 'ul'; }
+        html.push('<li>' + enLinea(conGuion[1]) + '</li>');
+      } else if (linea.trim() === '') {
+        cerrarLista();
+      } else {
+        cerrarLista();
+        html.push(enLinea(linea) + '<br>');
+      }
+    }
+    if (enBloqueCodigo) { html.push('<pre><code>' + escapar(buffer.join('\n')) + '</code></pre>'); }
+    cerrarLista();
+    return html.join('').replace(/(<br>)+$/, '');
+  }
+
+  /** Envía el mensaje del chat y deja el textarea limpio y en una línea. */
+  enviarYReset(el: HTMLTextAreaElement): void {
+    this.enviarMensajeChat();
+    el.value = '';
+    el.style.height = 'auto';
+  }
+
+  /** Enter envía; Shift+Enter inserta salto de línea; con el campo vacío, Enter no hace nada. */
+  onTeclaChat(evento: KeyboardEvent, el: HTMLTextAreaElement): void {
+    if (evento.key === 'Enter' && !evento.shiftKey) {
+      evento.preventDefault();
+      this.enviarYReset(el); // enviarMensajeChat ya ignora el envío si está vacío
+    }
+  }
+
+  /** Autoexpande el textarea hasta un máximo de 3 líneas; a partir de ahí, scroll interno. */
+  ajustarAlturaChat(el: HTMLTextAreaElement): void {
+    el.style.height = 'auto';
+    const estilo = getComputedStyle(el);
+    const alturaLinea = parseFloat(estilo.lineHeight) || 20;
+    const relleno = parseFloat(estilo.paddingTop) + parseFloat(estilo.paddingBottom);
+    const maxAltura = alturaLinea * 3 + relleno; // 3 líneas
+    el.style.height = Math.min(el.scrollHeight, maxAltura) + 'px';
+  }
+
   // Genera y descarga la transcripción del vídeo como .txt (cada línea con su minuto).
   descargarTranscripcion(): void {
     if (!this.fragmentos.length) {

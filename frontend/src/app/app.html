@@ -595,7 +595,7 @@
                   <div class="message message-user">{{ mensaje.contenido }}</div>
                 } @else {
                   <div class="message message-ai">
-                    <p>{{ mensaje.contenido }}</p>
+                    <div class="message-md" [innerHTML]="renderizarMarkdown(mensaje.contenido)"></div>
 
                     @if (mensaje.fuentes && mensaje.fuentes.length > 0) {
                       <div class="momentos-relacionados">
@@ -627,13 +627,16 @@
             </div>
 
             <div class="chat-input">
-              <input
-                type="text"
+              <textarea
+                #campoChat
+                class="chat-textarea"
+                rows="1"
                 [(ngModel)]="pregunta"
                 placeholder="Introduce tu mensaje"
-                (keydown.enter)="enviarMensajeChat()"
-              />
-              <button type="button" (click)="enviarMensajeChat()" [disabled]="cargandoBusqueda || !videoSeleccionado">
+                (input)="ajustarAlturaChat(campoChat)"
+                (keydown)="onTeclaChat($event, campoChat)"
+              ></textarea>
+              <button type="button" (click)="enviarYReset(campoChat)" [disabled]="cargandoBusqueda || !videoSeleccionado">
                 @if (cargandoBusqueda) {
                   <span class="send-bubbles" aria-label="Procesando">
                     <i></i>

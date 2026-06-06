@@ -1227,7 +1227,8 @@
   font-size: 0.74rem;
 }
 
-.chat-input input {
+.chat-input input,
+.chat-textarea {
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
@@ -1238,9 +1239,56 @@
   transition: border-color 0.18s ease, background 0.18s ease;
 }
 
-.chat-input input:focus {
+.chat-input input:focus,
+.chat-textarea:focus {
   border-color: rgba(195, 192, 255, 0.38);
   background: rgba(255, 255, 255, 0.052);
+}
+
+/* Textarea autoexpandible del chat (1 línea -> máx. 3 -> scroll interno). */
+.chat-textarea {
+  box-sizing: border-box;
+  resize: none;
+  overflow-y: auto;
+  line-height: 1.4;
+  font-family: inherit;
+  font-size: 0.82rem;
+  max-height: 5.6rem; /* ~3 líneas (respaldo del límite que aplica el JS) */
+}
+
+/* Markdown renderizado en las respuestas del asistente */
+.message-md {
+  margin: 0;
+  white-space: normal;
+  line-height: 1.46;
+}
+.message-md ul,
+.message-md ol {
+  margin: 0.35rem 0;
+  padding-left: 1.25rem;
+}
+.message-md li {
+  margin: 0.12rem 0;
+}
+.message-md strong {
+  font-weight: 700;
+}
+.message-md code {
+  background: rgba(255, 255, 255, 0.09);
+  padding: 0.04rem 0.32rem;
+  border-radius: 5px;
+  font-size: 0.88em;
+}
+.message-md pre {
+  background: rgba(0, 0, 0, 0.32);
+  padding: 0.55rem 0.7rem;
+  border-radius: 9px;
+  overflow-x: auto;
+  margin: 0.4rem 0;
+}
+.message-md pre code {
+  background: none;
+  padding: 0;
 }
 
 .concepts-heading {
@@ -1600,6 +1648,7 @@
   align-self: flex-end;
   background: rgba(195, 192, 255, 0.16);
   border: 1px solid rgba(195, 192, 255, 0.13);
+  white-space: pre-wrap; /* respeta los saltos de línea (Shift+Enter) del usuario */
 }
 
 .message-ai {
