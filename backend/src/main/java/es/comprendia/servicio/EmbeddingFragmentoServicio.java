@@ -72,7 +72,10 @@ public class EmbeddingFragmentoServicio {
                 exitos++;
 
             } catch (Exception e) {
-                LOG.errorf(e, "[Embedding] FALLO en fragmento id=%s: %s", fragmento.id, e.getMessage());
+                // No se incluye e.getMessage() en el formato: puede traer el cuerpo de error de
+                // OpenAI con llaves { } y el formateador de logs lo interpreta como argumento.
+                // El detalle queda igualmente en el stack trace de la excepción.
+                LOG.errorf(e, "[Embedding] FALLO al generar el embedding del fragmento id=%s", fragmento.id);
             }
         }
 

@@ -170,7 +170,10 @@ public class ChatGptServicio {
 
             if (respuesta.statusCode() != 200) {
                 String error = respuesta.body().reduce("", (a, b) -> a + b);
-                LOG.errorf("[GPT-stream] OpenAI respondió HTTP %d: %s", respuesta.statusCode(), error);
+                // Se neutralizan las llaves del cuerpo de error para que el formateador de logs
+                // no las interprete como argumentos ({...}).
+                LOG.errorf("[GPT-stream] OpenAI respondió HTTP %d: %s",
+                    respuesta.statusCode(), error.replace('{', '(').replace('}', ')'));
                 throw new IllegalStateException("Error de OpenAI (HTTP " + respuesta.statusCode() + "): " + error);
             }
 

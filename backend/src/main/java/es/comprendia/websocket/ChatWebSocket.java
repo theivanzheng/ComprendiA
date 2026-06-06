@@ -87,10 +87,11 @@ public class ChatWebSocket {
             LOG.infof("[WS-Chat] Respuesta completada (videoId=%s)", idVideo);
 
         } catch (Exception e) {
-            // Se registra el stack trace completo y la causa raíz para poder diagnosticar.
-            Throwable causa = e.getCause() != null ? e.getCause() : e;
-            LOG.errorf(e, "[WS-Chat] FALLO al responder (videoId=%s, pregunta='%s'): %s | causa: %s",
-                idVideo, recortar(consulta.pregunta()), e.toString(), causa.toString());
+            // Se registra el stack trace completo (incluye el detalle del error). No se mete
+            // e.toString() en el formato porque puede traer llaves { } del cuerpo de OpenAI y
+            // el formateador de logs las interpretaría como argumentos.
+            LOG.errorf(e, "[WS-Chat] FALLO al responder (videoId=%s, pregunta='%s')",
+                idVideo, recortar(consulta.pregunta()));
             enviar(conexion, Map.of("tipo", "error",
                 "mensaje", "No se pudo generar la respuesta. Inténtalo de nuevo."));
         }
