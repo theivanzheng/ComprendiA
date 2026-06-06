@@ -677,6 +677,13 @@ export class App implements OnInit, OnDestroy {
   }
 
   get resumenClase(): string {
+    // Prioridad: el resumen generado por IA y guardado en backend (Video.resumen).
+    const guardado = this.videoSeleccionado?.resumen;
+    if (guardado && guardado.trim()) {
+      return guardado.trim();
+    }
+
+    // Respaldo (vídeos antiguos sin resumen de IA): síntesis local a partir de capítulos/conceptos.
     const fragmentos = this.fragmentosClase;
     const capitulos = this.capitulosClase;
     const conceptos = this.conceptosClave;

@@ -7,6 +7,7 @@ import es.comprendia.dto.ConceptoClaveVideoDTO;
 import es.comprendia.entidad.FragmentoTranscripcion;
 import es.comprendia.repositorio.CapituloVideoRepositorio;
 import es.comprendia.repositorio.ConceptoClaveVideoRepositorio;
+import es.comprendia.repositorio.VideoRepositorio;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -31,6 +32,9 @@ public class AnalisisClaseServicio {
 
     @Inject
     ConceptoClaveVideoRepositorio conceptoRepositorio;
+
+    @Inject
+    VideoRepositorio videoRepositorio;
 
     @ConfigProperty(name = "comprendia.analisis.gpt.habilitado", defaultValue = "true")
     boolean analisisGptHabilitado;
@@ -71,7 +75,7 @@ public class AnalisisClaseServicio {
         // Normalización temporal final (orden ASC, dedup, fin = inicio del siguiente, sin
         // solapamientos). Se aplica a AMBOS caminos (GPT y fallback) antes de persistir.
         List<CapituloVideoDTO> capitulosNorm = ajustarMonotonicidadYFines(resultado.capitulos(), duracion);
-        resultado = new ResultadoAnalisis(capitulosNorm, resultado.conceptos());
+        resultado = new ResultadoAnalisis(capitulosNorm, resultado.conceptos(), resultado.resumen());
         double maxCapFin = maxTiempoFinCapitulos(resultado.capitulos());
 
         capituloRepositorio.reemplazar(idVideo, resultado.capitulos());
@@ -79,6 +83,13 @@ public class AnalisisClaseServicio {
         LOG.infof("[Analisis] Guardados %d capitulos (fuente=%s, cubren hasta %.0fs de %.0fs) y %d conceptos para video id=%s",
             resultado.capitulos().size(), usandoGpt ? "GPT" : "FALLBACK", maxCapFin, duracion,
             resultado.conceptos().size(), idVideo);
+
+        // Resumen de la clase (solo si GPT generó uno válido): se persiste en Video.resumen.
+        if (resultado.resumen() != null && !resultado.resumen().isBlank()) {
+            videoRepositorio.actualizarResumen(idVideo, resultado.resumen());
+            LOG.infof("[Resumen] Guardado en Video.resumen (%d caracteres) para video id=%s",
+                resultado.resumen().length(), idVideo);
+        }
     }
 
     private double maxTiempoFin(List<FragmentoTranscripcion> fragmentos) {
@@ -103,12 +114,20 @@ public class AnalisisClaseServicio {
             Usa SIEMPRE un segundo que aparezca entre corchetes en la transcripcion; NO inventes
             valores intermedios. El titulo y la descripcion deben corresponder al contenido de esa
             misma linea y las siguientes, no a otro punto del video.
+            Incluye tambien un "resumen" de la clase: una SINTESIS NATURAL de 3 a 5 lineas que
+            explique de que trata la clase y que aprende el alumno, redactada como un resumen
+            academico breve. Empieza por algo como "En esta clase se explica...".
+            PROHIBIDO en el resumen: enumerar los capitulos, copiar sus titulos, usar punto y coma
+            para listar, y frases de relleno como "a lo largo del video se trabaja..." o "dejando
+            una vision global...". Lenguaje natural y claro, sin sonar a plantilla.
             """;
 
         String usuario = """
-            Genera entre 5 y 8 capitulos en orden cronologico (segundoInicio creciente) que cubran
-            toda la clase, y entre 6 y 10 conceptos clave. Responde con esta forma exacta:
+            Genera un "resumen" de la clase (3-5 lineas, sintesis natural), entre 5 y 8 capitulos en
+            orden cronologico (segundoInicio creciente) que cubran toda la clase, y entre 6 y 10
+            conceptos clave. Responde con esta forma exacta:
             {
+              "resumen": "En esta clase se explica...",
               "capitulos": [
                 {"titulo": "...", "descripcion": "...", "segundoInicio": 138}
               ],
@@ -127,6 +146,15 @@ public class AnalisisClaseServicio {
     private ResultadoAnalisis parsearAnalisis(String json, List<FragmentoTranscripcion> fragmentos, double duracion) {
         try {
             JsonNode raiz = mapeadorJson.readTree(json);
+
+            // ── Resumen de la clase (síntesis de GPT) ──
+            String resumen = limpiar(raiz.path("resumen").asText(""), 700);
+            if (pareceResumenMecanico(resumen)) {
+                LOG.warn("[Resumen] El resumen de GPT parecía una lista/plantilla; se descarta");
+                resumen = null;
+            } else if (!resumen.isBlank()) {
+                LOG.infof("[Resumen] Resumen generado: %d caracteres", resumen.length());
+            }
 
             // ── Capítulos: el segundoInicio lo elige GPT de los marcadores [segundo] reales ──
             // La normalización temporal final (orden, fines, sin solapamientos) se hace después
@@ -157,10 +185,25 @@ public class AnalisisClaseServicio {
                 throw new IllegalStateException("GPT devolvio un analisis demasiado pobre");
             }
 
-            return new ResultadoAnalisis(capitulos, conceptos);
+            return new ResultadoAnalisis(capitulos, conceptos, resumen);
         } catch (Exception e) {
             throw new IllegalStateException("No se pudo parsear el JSON de analisis: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Validación simple del resumen: se descarta si parece una enumeración mecánica (muchos ';')
+     * o si empieza con la plantilla antigua. En ese caso no se guarda (mejor sin resumen que malo).
+     */
+    private boolean pareceResumenMecanico(String resumen) {
+        if (resumen == null || resumen.isBlank()) return false;
+        String n = resumen.toLowerCase();
+        long puntoYComa = resumen.chars().filter(c -> c == ';').count();
+        return puntoYComa > 3
+            || n.startsWith("esta clase trata")
+            || n.contains("a lo largo del v")
+            || n.contains("vision global")
+            || n.contains("visión global");
     }
 
     /** Asegura que el segundo elegido por GPT cae dentro de [0, duracion] del vídeo. */
@@ -347,7 +390,8 @@ public class AnalisisClaseServicio {
             ));
         }
 
-        return new ResultadoAnalisis(capitulos, conceptos);
+        // El fallback no genera resumen con IA (null); el frontend mostrará el de respaldo.
+        return new ResultadoAnalisis(capitulos, conceptos, null);
     }
 
     // Construye la transcripción para GPT con el segundo de inicio de cada fragmento.
@@ -433,6 +477,7 @@ public class AnalisisClaseServicio {
 
     private record ResultadoAnalisis(
         List<CapituloVideoDTO> capitulos,
-        List<ConceptoClaveVideoDTO> conceptos
+        List<ConceptoClaveVideoDTO> conceptos,
+        String resumen
     ) {}
 }
