@@ -1089,6 +1089,33 @@ export class App implements OnInit, OnDestroy {
     return `${m}:${s.toString().padStart(2, '0')}`;
   }
 
+  // Genera y descarga la transcripción del vídeo como .txt (cada línea con su minuto).
+  descargarTranscripcion(): void {
+    if (!this.fragmentos.length) {
+      return;
+    }
+    const titulo = this.videoSeleccionado?.titulo ?? 'Transcripción';
+    const enlace = this.youtubeIdClase
+      ? `https://www.youtube.com/watch?v=${this.youtubeIdClase}\n`
+      : '';
+    const cabecera = `Transcripción — ${titulo}\n${enlace}\n`;
+
+    const cuerpo = [...this.fragmentos]
+      .sort((a, b) => a.tiempoInicio - b.tiempoInicio)
+      .map((f) => `[${this.formatearTiempo(f.tiempoInicio)}] ${(f.texto ?? '').trim()}`)
+      .join('\n');
+
+    const blob = new Blob([cabecera + cuerpo + '\n'], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `transcripcion-${this.youtubeIdClase ?? this.videoSeleccionado?.id ?? 'video'}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   formatearDuracion(segundos: number): string {
     const total = Math.max(0, Math.floor(segundos));
     const horas = Math.floor(total / 3600);

@@ -341,6 +341,15 @@
                   Anadir concepto
                 </button>
                 <button
+                  class="annotation-action"
+                  type="button"
+                  (click)="descargarTranscripcion()"
+                  [disabled]="fragmentos.length === 0"
+                  title="Descargar la transcripción del vídeo en .txt">
+                  <span>↓</span>
+                  Descargar transcripción
+                </button>
+                <button
                   class="annotation-action completion-action"
                   type="button"
                   [class.is-complete]="claseActualCompletada"
