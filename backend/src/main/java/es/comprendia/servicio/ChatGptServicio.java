@@ -1,28 +1,44 @@
 package es.comprendia.servicio;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.StreamingResponseHandler;
+import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import dev.langchain4j.model.output.Response;
 import es.comprendia.dto.MensajeChatDTO;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
-import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
+/**
+ * Capa de interacción con el modelo de lenguaje (chat) usando LangChain4j.
+ *
+ * En vez de montar la petición HTTP a OpenAI a mano, se usan los modelos de LangChain4j
+ * ({@link ChatLanguageModel} y {@link StreamingChatLanguageModel}). Como cada método necesita
+ * distintos parámetros (temperatura, max tokens, modo JSON), los modelos se construyen y cachean
+ * por combinación de parámetros. Las firmas públicas no cambian: el resto del sistema (RAG,
+ * análisis, clasificación, chat por WebSocket) sigue igual.
+ */
 @ApplicationScoped
 public class ChatGptServicio {
 
     private static final Logger LOG = Logger.getLogger(ChatGptServicio.class);
-    private static final String URL_CHAT = "https://api.openai.com/v1/chat/completions";
     private static final String MODELO = "gpt-4o-mini";
+
     private static final String SISTEMA =
         "Eres un asistente educativo cercano que ayuda a un alumno a entender una clase grabada. " +
         "Respondes en lenguaje natural, humano y útil, como lo haría un buen profesor. " +
@@ -55,18 +71,41 @@ public class ChatGptServicio {
     @ConfigProperty(name = "comprendia.openai.api.clave", defaultValue = "")
     String claveApi;
 
-    private final HttpClient clienteHttp = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(15))
-        .build();
-    private final ObjectMapper mapeadorJson = new ObjectMapper();
+    // Modelos de LangChain4j cacheados por combinación de parámetros (maxTokens|temp|json).
+    private final Map<String, ChatLanguageModel> cacheChat = new ConcurrentHashMap<>();
+    private final Map<String, StreamingChatLanguageModel> cacheStream = new ConcurrentHashMap<>();
+
+    private ChatLanguageModel chat(int maxTokens, double temperature, boolean json) {
+        return cacheChat.computeIfAbsent(maxTokens + "|" + temperature + "|" + json, clave -> {
+            OpenAiChatModel.OpenAiChatModelBuilder constructor = OpenAiChatModel.builder()
+                .apiKey(claveApi)
+                .modelName(MODELO)
+                .temperature(temperature)
+                .maxTokens(maxTokens)
+                .timeout(Duration.ofSeconds(90));
+            if (json) {
+                constructor.responseFormat("json_object"); // respuesta JSON garantizada
+            }
+            return constructor.build();
+        });
+    }
+
+    private StreamingChatLanguageModel chatStream(int maxTokens, double temperature) {
+        return cacheStream.computeIfAbsent(maxTokens + "|" + temperature, clave ->
+            OpenAiStreamingChatModel.builder()
+                .apiKey(claveApi)
+                .modelName(MODELO)
+                .temperature(temperature)
+                .maxTokens(maxTokens)
+                .timeout(Duration.ofSeconds(120))
+                .build());
+    }
 
     public String completar(String contexto, String pregunta) {
-        if (claveApi.isBlank()) {
-            throw new IllegalStateException("OPENAI_API_KEY no configurada");
-        }
-
-        String cuerpo = construirCuerpo(contexto, pregunta);
-        return enviarSolicitud(cuerpo);
+        List<ChatMessage> mensajes = List.of(
+            SystemMessage.from(SISTEMA),
+            UserMessage.from("Fragmentos relevantes de la transcripcion:\n" + contexto + "\n\nPregunta: " + pregunta));
+        return generar(chat(600, 0.3, false), mensajes);
     }
 
     /**
@@ -75,237 +114,99 @@ public class ChatGptServicio {
      */
     public String completarConversacion(String contexto, String pregunta,
                                         List<MensajeChatDTO> historial, String entidadReciente) {
-        if (claveApi.isBlank()) {
-            throw new IllegalStateException("OPENAI_API_KEY no configurada");
-        }
-
-        String cuerpo = construirCuerpoConversacion(contexto, pregunta, historial, entidadReciente, false);
-        return enviarSolicitud(cuerpo);
+        return generar(chat(500, 0.3, false),
+            mensajesConversacion(contexto, pregunta, historial, entidadReciente));
     }
 
     /**
-     * Igual que completarConversacion, pero en modo streaming: pide a OpenAI la respuesta token
-     * a token (stream=true) y entrega cada fragmento al consumidor 'onChunk' según va llegando.
-     * Devuelve además el texto completo acumulado.
+     * Igual que completarConversacion, pero en streaming: cada token llega por 'onChunk' según
+     * lo va generando el modelo. Devuelve el texto completo cuando termina.
      */
     public String completarConversacionStream(String contexto, String pregunta,
                                               List<MensajeChatDTO> historial, String entidadReciente,
-                                              java.util.function.Consumer<String> onChunk) {
-        if (claveApi.isBlank()) {
-            throw new IllegalStateException("OPENAI_API_KEY no configurada");
-        }
-        // Diagnóstico: qué recibe realmente la LLM (tamaño de contexto, nº de turnos, pregunta).
+                                              Consumer<String> onChunk) {
         int turnos = historial == null ? 0 : historial.size();
         int largoContexto = contexto == null ? 0 : contexto.length();
         LOG.infof("[GPT-stream] contexto=%d chars, historial=%d turnos, entidad='%s', pregunta='%s'",
             largoContexto, turnos, entidadReciente, pregunta);
-        String cuerpo = construirCuerpoConversacion(contexto, pregunta, historial, entidadReciente, true);
-        return enviarSolicitudStream(cuerpo, onChunk);
-    }
 
-    public String completarPersonalizado(String sistema, String usuario, int maxTokens, double temperature) {
-        if (claveApi.isBlank()) {
-            throw new IllegalStateException("OPENAI_API_KEY no configurada");
-        }
-
-        String cuerpo = construirCuerpoPersonalizado(sistema, usuario, maxTokens, temperature);
-        return enviarSolicitud(cuerpo);
-    }
-
-    public String completarEstructurado(String sistema, String usuario, int maxTokens) {
-        if (claveApi.isBlank()) {
-            throw new IllegalStateException("OPENAI_API_KEY no configurada");
-        }
-
-        String cuerpo = construirCuerpoEstructurado(sistema, usuario, maxTokens);
-        return enviarSolicitud(cuerpo);
-    }
-
-    private String enviarSolicitud(String cuerpo) {
-        HttpRequest solicitud = HttpRequest.newBuilder()
-            .uri(URI.create(URL_CHAT))
-            .header("Authorization", "Bearer " + claveApi)
-            .header("Content-Type", "application/json")
-            .timeout(Duration.ofSeconds(60))
-            .POST(HttpRequest.BodyPublishers.ofString(cuerpo))
-            .build();
-
-        try {
-            long inicio = System.currentTimeMillis();
-            HttpResponse<String> respuesta = clienteHttp.send(solicitud, HttpResponse.BodyHandlers.ofString());
-            LOG.infof("[GPT] Completado en %d ms (HTTP %d)", System.currentTimeMillis() - inicio, respuesta.statusCode());
-
-            if (respuesta.statusCode() != 200) {
-                throw new IllegalStateException("Error de OpenAI (HTTP " + respuesta.statusCode() + "): " + respuesta.body());
-            }
-
-            return parsearRespuesta(respuesta.body());
-
-        } catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-            throw new IllegalStateException("Error al llamar a GPT: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Envía la petición a OpenAI en modo streaming. La respuesta llega como Server-Sent Events:
-     * líneas "data: {json}" donde cada trozo trae choices[0].delta.content. Por cada token se
-     * invoca onChunk. La secuencia termina con "data: [DONE]". Devuelve el texto completo.
-     */
-    private String enviarSolicitudStream(String cuerpo, java.util.function.Consumer<String> onChunk) {
-        HttpRequest solicitud = HttpRequest.newBuilder()
-            .uri(URI.create(URL_CHAT))
-            .header("Authorization", "Bearer " + claveApi)
-            .header("Content-Type", "application/json")
-            .timeout(Duration.ofSeconds(90))
-            .POST(HttpRequest.BodyPublishers.ofString(cuerpo))
-            .build();
-
+        List<ChatMessage> mensajes = mensajesConversacion(contexto, pregunta, historial, entidadReciente);
+        CompletableFuture<String> futuro = new CompletableFuture<>();
         StringBuilder completo = new StringBuilder();
-        try {
-            long inicio = System.currentTimeMillis();
-            LOG.info("[GPT-stream] Iniciando streaming a OpenAI");
-            HttpResponse<java.util.stream.Stream<String>> respuesta =
-                clienteHttp.send(solicitud, HttpResponse.BodyHandlers.ofLines());
+        long inicio = System.currentTimeMillis();
 
-            if (respuesta.statusCode() != 200) {
-                String error = respuesta.body().reduce("", (a, b) -> a + b);
-                // Se neutralizan las llaves del cuerpo de error para que el formateador de logs
-                // no las interprete como argumentos ({...}).
-                LOG.errorf("[GPT-stream] OpenAI respondió HTTP %d: %s",
-                    respuesta.statusCode(), error.replace('{', '(').replace('}', ')'));
-                throw new IllegalStateException("Error de OpenAI (HTTP " + respuesta.statusCode() + "): " + error);
+        chatStream(500, 0.3).generate(mensajes, new StreamingResponseHandler<AiMessage>() {
+            @Override public void onNext(String token) {
+                completo.append(token);
+                onChunk.accept(token);
             }
+            @Override public void onComplete(Response<AiMessage> respuesta) {
+                futuro.complete(completo.toString());
+            }
+            @Override public void onError(Throwable error) {
+                futuro.completeExceptionally(error);
+            }
+        });
 
-            respuesta.body().forEach(linea -> {
-                if (linea == null || !linea.startsWith("data:")) return;
-                String dato = linea.substring("data:".length()).trim();
-                if (dato.isEmpty() || dato.equals("[DONE]")) return;
-                try {
-                    JsonNode nodo = mapeadorJson.readTree(dato);
-                    JsonNode contenido = nodo.path("choices").path(0).path("delta").path("content");
-                    if (contenido.isTextual()) {
-                        String token = contenido.asText();
-                        completo.append(token);
-                        onChunk.accept(token);
-                    }
-                } catch (Exception ignorado) {
-                    // Trozo no interpretable: se ignora y se sigue con el resto del stream.
-                }
-            });
+        try {
+            String texto = futuro.get(120, TimeUnit.SECONDS);
             LOG.infof("[GPT-stream] Completado en %d ms (%d caracteres)",
-                System.currentTimeMillis() - inicio, completo.length());
-            return completo.toString();
-
-        } catch (IOException | InterruptedException e) {
+                System.currentTimeMillis() - inicio, texto.length());
+            return texto;
+        } catch (Exception e) {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-            LOG.errorf(e, "[GPT-stream] Error de red llamando a OpenAI: %s", e.toString());
             throw new IllegalStateException("Error al llamar a GPT (stream): " + e.getMessage(), e);
         }
     }
 
-    private String construirCuerpo(String contexto, String pregunta) {
-        try {
-            return mapeadorJson.writeValueAsString(Map.of(
-                "model", MODELO,
-                "temperature", 0.3,
-                "max_tokens", 600,
-                "messages", List.of(
-                    Map.of("role", "system", "content", SISTEMA),
-                    Map.of("role", "user", "content",
-                        "Fragmentos relevantes de la transcripcion:\n" + contexto +
-                        "\n\nPregunta: " + pregunta)
-                )
-            ));
-        } catch (Exception e) {
-            throw new IllegalStateException("Error al construir el cuerpo de la peticion", e);
-        }
+    public String completarPersonalizado(String sistema, String usuario, int maxTokens, double temperature) {
+        return generar(chat(maxTokens, temperature, false),
+            List.of(SystemMessage.from(sistema), UserMessage.from(usuario)));
     }
 
-    private String construirCuerpoConversacion(String contexto, String pregunta,
-                                              List<MensajeChatDTO> historial, String entidadReciente,
-                                              boolean stream) {
-        try {
-            List<Map<String, String>> mensajes = new ArrayList<>();
-            mensajes.add(Map.of("role", "system", "content", SISTEMA_CONVERSACION));
+    public String completarEstructurado(String sistema, String usuario, int maxTokens) {
+        return generar(chat(maxTokens, 0.2, true),
+            List.of(SystemMessage.from(sistema), UserMessage.from(usuario)));
+    }
 
-            // Historial reciente (memoria corta). Se cortan tamaños desorbitados por seguridad.
-            if (historial != null) {
-                for (MensajeChatDTO turno : historial) {
-                    if (turno == null || turno.contenido() == null || turno.contenido().isBlank()) continue;
-                    String role = "assistant".equalsIgnoreCase(turno.rol()) ? "assistant" : "user";
-                    String contenido = turno.contenido().length() > 1200
-                        ? turno.contenido().substring(0, 1200) : turno.contenido();
-                    mensajes.add(Map.of("role", role, "content", contenido));
+    // ── Helpers ────────────────────────────────────────────────────────────────
+
+    private String generar(ChatLanguageModel modelo, List<ChatMessage> mensajes) {
+        long inicio = System.currentTimeMillis();
+        Response<AiMessage> respuesta = modelo.generate(mensajes);
+        LOG.infof("[GPT] Completado en %d ms", System.currentTimeMillis() - inicio);
+        return respuesta.content().text();
+    }
+
+    /** Construye la lista de mensajes del chat conversacional (system + historial + pregunta). */
+    private List<ChatMessage> mensajesConversacion(String contexto, String pregunta,
+                                                   List<MensajeChatDTO> historial, String entidadReciente) {
+        List<ChatMessage> mensajes = new ArrayList<>();
+        mensajes.add(SystemMessage.from(SISTEMA_CONVERSACION));
+
+        // Historial reciente (memoria corta). Se cortan tamaños desorbitados por seguridad.
+        if (historial != null) {
+            for (MensajeChatDTO turno : historial) {
+                if (turno == null || turno.contenido() == null || turno.contenido().isBlank()) continue;
+                String contenido = turno.contenido().length() > 1200
+                    ? turno.contenido().substring(0, 1200) : turno.contenido();
+                if ("assistant".equalsIgnoreCase(turno.rol())) {
+                    mensajes.add(AiMessage.from(contenido));
+                } else {
+                    mensajes.add(UserMessage.from(contenido));
                 }
             }
-
-            // Mismo formato que el endpoint /responder (que funciona bien): contexto + "Pregunta:".
-            StringBuilder usuario = new StringBuilder();
-            usuario.append("Fragmentos relevantes de la transcripcion:\n").append(contexto);
-            if (entidadReciente != null && !entidadReciente.isBlank()) {
-                usuario.append("\n(Si la pregunta usa un pronombre o alusión, probablemente se refiere a: ")
-                       .append(entidadReciente).append(")");
-            }
-            usuario.append("\n\nPregunta: ").append(pregunta);
-
-            // ¡IMPRESCINDIBLE! Añadir el mensaje del usuario (contexto + pregunta actual) a la lista.
-            // Sin esta línea, a la LLM solo le llegaban el system y el historial, no la pregunta actual.
-            mensajes.add(Map.of("role", "user", "content", usuario.toString()));
-
-            Map<String, Object> cuerpo = new java.util.HashMap<>();
-            cuerpo.put("model", MODELO);
-            cuerpo.put("temperature", 0.3);
-            cuerpo.put("max_tokens", 500);
-            cuerpo.put("messages", mensajes);
-            if (stream) {
-                cuerpo.put("stream", true); // OpenAI devolverá la respuesta token a token (SSE)
-            }
-            return mapeadorJson.writeValueAsString(cuerpo);
-        } catch (Exception e) {
-            throw new IllegalStateException("Error al construir el cuerpo conversacional", e);
         }
-    }
 
-    private String construirCuerpoPersonalizado(String sistema, String usuario, int maxTokens, double temperature) {
-        try {
-            return mapeadorJson.writeValueAsString(Map.of(
-                "model", MODELO,
-                "temperature", temperature,
-                "max_tokens", maxTokens,
-                "messages", List.of(
-                    Map.of("role", "system", "content", sistema),
-                    Map.of("role", "user", "content", usuario)
-                )
-            ));
-        } catch (Exception e) {
-            throw new IllegalStateException("Error al construir el cuerpo de la peticion", e);
+        // Mensaje del usuario: extractos del RAG + la pregunta actual.
+        StringBuilder usuario = new StringBuilder();
+        usuario.append("Fragmentos relevantes de la transcripcion:\n").append(contexto);
+        if (entidadReciente != null && !entidadReciente.isBlank()) {
+            usuario.append("\n(Si la pregunta usa un pronombre o alusión, probablemente se refiere a: ")
+                   .append(entidadReciente).append(")");
         }
-    }
-
-    private String construirCuerpoEstructurado(String sistema, String usuario, int maxTokens) {
-        try {
-            return mapeadorJson.writeValueAsString(Map.of(
-                "model", MODELO,
-                "temperature", 0.2,
-                "max_tokens", maxTokens,
-                "response_format", Map.of("type", "json_object"),
-                "messages", List.of(
-                    Map.of("role", "system", "content", sistema),
-                    Map.of("role", "user", "content", usuario)
-                )
-            ));
-        } catch (Exception e) {
-            throw new IllegalStateException("Error al construir el cuerpo de la peticion", e);
-        }
-    }
-
-    private String parsearRespuesta(String json) {
-        try {
-            JsonNode raiz = mapeadorJson.readTree(json);
-            return raiz.path("choices").path(0).path("message").path("content").asText();
-        } catch (Exception e) {
-            throw new IllegalStateException("Error al parsear respuesta de GPT: " + e.getMessage(), e);
-        }
+        usuario.append("\n\nPregunta: ").append(pregunta);
+        mensajes.add(UserMessage.from(usuario.toString()));
+        return mensajes;
     }
 }

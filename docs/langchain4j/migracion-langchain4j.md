@@ -49,7 +49,21 @@ método) para no romper el resto del sistema. Tras cada capa: compilar + tests e
 - **Pendiente de validar en vivo:** generar embeddings reales requiere una `OPENAI_API_KEY` válida
   (la anterior daba 401).
 
-### Paso 2 — Chat con LangChain4j (pendiente)
-<!-- ChatGptServicio -> ChatLanguageModel / StreamingChatLanguageModel -->
+### Paso 2 — Chat con LangChain4j ✅
+- **`ChatGptServicio`** ya no monta peticiones HTTP ni parsea SSE a mano. Usa los modelos de
+  LangChain4j:
+  - `ChatLanguageModel` (síncrono) para `completar`, `completarConversacion`,
+    `completarPersonalizado` y `completarEstructurado`.
+  - `StreamingChatLanguageModel` para `completarConversacionStream` (el chat por WebSocket): el
+    `StreamingResponseHandler` entrega cada token por `onChunk` y un `CompletableFuture` espera al
+    `onComplete` para devolver el texto completo. Adiós al parseo manual de Server-Sent Events.
+- **Parámetros por método:** como cada llamada usa distinta temperatura / max tokens / modo JSON,
+  los modelos se **construyen y cachean** por combinación de parámetros (`OpenAiChatModel.builder()`
+  / `OpenAiStreamingChatModel.builder()`), conservando exactamente los valores de antes
+  (chat 0.3/500, análisis 0.2/`json_object`, etc.).
+- **Mensajes:** se construyen con los tipos de LangChain4j (`SystemMessage`, `UserMessage`,
+  `AiMessage` para el historial) en vez de `Map`/JSON.
+- **Firmas públicas intactas:** `RagServicio`, `AnalisisClaseServicio` y `ChatWebSocket` no cambian.
+- **Resultado:** compila y los 19 tests pasan.
 
 ### Paso 3 — RAG con LangChain4j (opcional, pendiente)
