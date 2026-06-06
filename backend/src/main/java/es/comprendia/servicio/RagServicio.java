@@ -7,8 +7,16 @@ import es.comprendia.dto.FragmentoDTO;
 import es.comprendia.dto.MensajeChatDTO;
 import es.comprendia.dto.RespuestaRagDTO;
 import es.comprendia.dto.ResultadoBusquedaDTO;
+import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.store.embedding.EmbeddingMatch;
+import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
+import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import es.comprendia.entidad.Video;
+import es.comprendia.servicio.rag.AlmacenEmbeddingsPgvector;
 import es.comprendia.repositorio.FragmentoTranscripcionRepositorio;
+
+import static dev.langchain4j.store.embedding.filter.MetadataFilterBuilder.metadataKey;
 import es.comprendia.repositorio.CapituloVideoRepositorio;
 import es.comprendia.repositorio.ConceptoClaveVideoRepositorio;
 import es.comprendia.repositorio.VideoRepositorio;
@@ -66,7 +74,38 @@ public class RagServicio {
     EmbeddingServicio embeddingServicio;
 
     @Inject
+    AlmacenEmbeddingsPgvector almacenEmbeddings;
+
+    @Inject
     ChatGptServicio chatGptServicio;
+
+    /**
+     * Fase de RECUPERACIÓN del RAG con las abstracciones de LangChain4j: genera el embedding de la
+     * consulta, construye una {@link EmbeddingSearchRequest} (filtrada por vídeo) y delega en el
+     * {@link AlmacenEmbeddingsPgvector}. Mapea las coincidencias a {@link ResultadoBusquedaDTO}
+     * (texto, tiempos y similitud) para mantener el resto del flujo sin cambios.
+     */
+    private List<ResultadoBusquedaDTO> recuperar(Long videoId, String textoBusqueda, int limite) {
+        Embedding consulta = embeddingServicio.generarEmbeddingLc(textoBusqueda);
+        EmbeddingSearchRequest peticion = EmbeddingSearchRequest.builder()
+            .queryEmbedding(consulta)
+            .maxResults(limite)
+            .filter(metadataKey(AlmacenEmbeddingsPgvector.CLAVE_VIDEO).isEqualTo(videoId))
+            .build();
+
+        EmbeddingSearchResult<TextSegment> resultado = almacenEmbeddings.search(peticion);
+        List<ResultadoBusquedaDTO> fuentes = new ArrayList<>();
+        for (EmbeddingMatch<TextSegment> coincidencia : resultado.matches()) {
+            TextSegment segmento = coincidencia.embedded();
+            fuentes.add(new ResultadoBusquedaDTO(
+                segmento.text(),
+                segmento.metadata().getDouble(AlmacenEmbeddingsPgvector.CLAVE_TIEMPO_INICIO),
+                segmento.metadata().getDouble(AlmacenEmbeddingsPgvector.CLAVE_TIEMPO_FIN),
+                segmento.metadata().getInteger(AlmacenEmbeddingsPgvector.CLAVE_ORDEN),
+                coincidencia.score()));
+        }
+        return fuentes;
+    }
 
     @Transactional
     public RespuestaRagDTO responder(Long videoId, String pregunta) {
@@ -83,9 +122,7 @@ public class RagServicio {
     }
 
     private RespuestaRagDTO responderLocal(Long videoId, String pregunta) {
-        List<Double> vectorPregunta = embeddingServicio.generarEmbedding(pregunta);
-        String embeddingStr = vectorPregunta.toString().replace(" ", "");
-        List<ResultadoBusquedaDTO> fuentes = fragmentoRepositorio.buscarPorSimilitud(videoId, embeddingStr, NUM_FRAGMENTOS);
+        List<ResultadoBusquedaDTO> fuentes = recuperar(videoId, pregunta, NUM_FRAGMENTOS);
 
         if (fuentes.isEmpty()) {
             return new RespuestaRagDTO("No hay fragmentos con embedding disponibles para este vídeo.", fuentes);
@@ -123,9 +160,7 @@ public class RagServicio {
         // referencia implícita; si trae sujeto propio nuevo, no se arrastra (evita contaminación).
         String entidadEfectiva = entidadAplicable(pregunta, entidadReciente);
         String textoBusqueda = entidadEfectiva == null ? pregunta : pregunta + " " + entidadEfectiva;
-        List<Double> vectorPregunta = embeddingServicio.generarEmbedding(textoBusqueda);
-        String embeddingStr = vectorPregunta.toString().replace(" ", "");
-        List<ResultadoBusquedaDTO> fuentes = fragmentoRepositorio.buscarPorSimilitud(videoId, embeddingStr, NUM_FRAGMENTOS);
+        List<ResultadoBusquedaDTO> fuentes = recuperar(videoId, textoBusqueda, NUM_FRAGMENTOS);
 
         if (fuentes.isEmpty()) {
             return new RespuestaRagDTO("Todavía no tengo la transcripción procesada para responder sobre este vídeo.", fuentes);
@@ -156,9 +191,7 @@ public class RagServicio {
         String entidadEfectiva = entidadAplicable(consulta.pregunta(), consulta.entidadReciente());
         String textoBusqueda = entidadEfectiva == null
             ? consulta.pregunta() : consulta.pregunta() + " " + entidadEfectiva;
-        List<Double> vectorPregunta = embeddingServicio.generarEmbedding(textoBusqueda);
-        String embeddingStr = vectorPregunta.toString().replace(" ", "");
-        List<ResultadoBusquedaDTO> fuentes = fragmentoRepositorio.buscarPorSimilitud(videoId, embeddingStr, NUM_FRAGMENTOS);
+        List<ResultadoBusquedaDTO> fuentes = recuperar(videoId, textoBusqueda, NUM_FRAGMENTOS);
         String contexto = construirContextoParaVideo(videoId, fuentes);
         LOG.infof("[RAG-WS] Recuperados %d fragmentos para mostrar (entidad aplicada='%s'), momentos=[%s] | pregunta: %s",
             fuentes.size(), entidadEfectiva, momentosDe(fuentes), consulta.pregunta());

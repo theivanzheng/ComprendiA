@@ -109,4 +109,36 @@ de SmallRye como `null`, lo que rompía el arranque con `@ConfigProperty String`
 
 **Resultado:** backend compila y los 19 tests pasan; el frontend compila.
 
-### Paso 4 — RAG con LangChain4j (opcional, pendiente)
+### Paso 4 — RAG con el EmbeddingStore de LangChain4j ✅
+
+Hasta ahora el modelo de embeddings ya era de LangChain4j (Paso 1), pero la **recuperación**
+(el *retriever*) era SQL artesanal dentro de `RagServicio` + el repositorio. Este paso sustituye
+esa fontanería por las **abstracciones estándar de LangChain4j** (`EmbeddingStore`,
+`EmbeddingSearchRequest/Result`, `TextSegment`, `Filter`), que es lo que propone la memoria TALENT.
+
+**Método elegido — adaptador propio (Opción A):** en vez de usar `langchain4j-pgvector` (que
+gestiona su propia tabla y obligaría a reprocesar todos los embeddings), implementamos un
+`EmbeddingStore<TextSegment>` que **delega en la tabla pgvector existente**. Así no se reprocesa
+nada, no se duplican datos, no hay dependencias nuevas (la interfaz vive en `langchain4j-core`) y
+el comportamiento de cara al usuario es idéntico.
+
+**Cambios:**
+- **`servicio/rag/AlmacenEmbeddingsPgvector`** (nuevo): implementa `EmbeddingStore<TextSegment>`.
+  Solo soporta `search(...)`: extrae el `videoId` del filtro
+  `metadataKey("videoId").isEqualTo(id)`, formatea el `queryEmbedding` a la sintaxis de pgvector
+  (`[v0,v1,...]`), llama a `buscarPorSimilitud` y mapea cada fila a un `EmbeddingMatch` con
+  `score` = similitud coseno y un `TextSegment` cuyo `Metadata` lleva tiempos y orden. Los métodos
+  `add*` lanzan `UnsupportedOperationException` (la ingesta sigue en `EmbeddingFragmentoServicio`).
+- **`EmbeddingServicio`**: nuevo `generarEmbeddingLc(String)` que devuelve el `Embedding` de
+  LangChain4j (sin convertir a `List<Double>`), para alimentar el `EmbeddingSearchRequest`.
+- **`RagServicio`**: nuevo helper `recuperar(videoId, texto, limite)` que construye el
+  `EmbeddingSearchRequest` (filtrado por vídeo) y delega en el almacén. Las tres rutas de
+  recuperación (`responderLocal`, `responderConversacion`, `prepararConversacion`) dejan de hacer
+  el embedding + SQL a mano y usan este helper. Se conservan la regla de "contexto completo si el
+  vídeo es pequeño", la lógica de entidad reciente y las fuentes (momentos del vídeo).
+
+**Lo que NO se toca:** esquema de BD, modelo de embeddings (`text-embedding-3-small`), ingesta de
+embeddings, ni el frontend.
+
+**Resultado:** compila, 19 tests verdes, y verificado en vivo por WebSocket que tanto OpenAI como
+Gemini siguen respondiendo en streaming con las fuentes (tiempos) intactas.
