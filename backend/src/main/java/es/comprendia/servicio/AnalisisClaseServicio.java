@@ -136,7 +136,7 @@ public class AnalisisClaseServicio {
             for (JsonNode nodo : raiz.path("capitulos")) {
                 String titulo = limpiar(nodo.path("titulo").asText("Capitulo " + (orden + 1)), 90);
                 String descripcion = limpiar(nodo.path("descripcion").asText(""), 220);
-                double inicio = segundoValido(nodo.path("segundoInicio").asDouble(0), duracion);
+                double inicio = segundoValido(segundoDeNodo(nodo.path("segundoInicio")), duracion);
                 LOG.infof("[Analisis][Cap %d] titulo='%s' -> t=%.0fs", orden + 1, titulo, inicio);
                 capitulos.add(new CapituloVideoDTO(null, titulo, descripcion, inicio, inicio, orden, "IA", false, true));
                 orden++;
@@ -148,7 +148,7 @@ public class AnalisisClaseServicio {
             for (JsonNode nodo : raiz.path("conceptos")) {
                 String nombre = limpiar(nodo.path("nombre").asText("Concepto " + (orden + 1)), 80);
                 String definicion = limpiar(nodo.path("definicion").asText(""), 220);
-                double inicio = segundoValido(nodo.path("segundoInicio").asDouble(0), duracion);
+                double inicio = segundoValido(segundoDeNodo(nodo.path("segundoInicio")), duracion);
                 LOG.infof("[Analisis][Concepto %d] '%s' -> t=%.0fs", orden + 1, nombre, inicio);
                 conceptos.add(new ConceptoClaveVideoDTO(null, nombre, definicion, inicio, null, orden++, false, true));
             }
@@ -168,6 +168,29 @@ public class AnalisisClaseServicio {
         if (segundo < 0) return 0;
         if (duracion > 0 && segundo > duracion) return duracion;
         return segundo;
+    }
+
+    /**
+     * Lee el segundoInicio de GPT de forma tolerante: acepta número (138), cadena numérica
+     * ("138") o formato de tiempo ("2:18" o "1:02:18"). Si no se puede interpretar, devuelve 0.
+     */
+    private double segundoDeNodo(JsonNode nodo) {
+        if (nodo == null || nodo.isMissingNode() || nodo.isNull()) return 0;
+        if (nodo.isNumber()) return nodo.asDouble();
+        String s = nodo.asText("").trim();
+        if (s.isEmpty()) return 0;
+        try {
+            if (s.contains(":")) { // formato m:ss o h:mm:ss
+                double total = 0;
+                for (String parte : s.split(":")) {
+                    total = total * 60 + Double.parseDouble(parte.trim());
+                }
+                return total;
+            }
+            return Double.parseDouble(s);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     // Devuelve el índice del fragmento (a partir de desde) con mayor solape léxico con el texto
