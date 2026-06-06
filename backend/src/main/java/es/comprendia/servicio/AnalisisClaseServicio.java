@@ -96,25 +96,28 @@ public class AnalisisClaseServicio {
             Eres un analista educativo. Conviertes la transcripcion de una clase en capitulos
             para navegarla y en conceptos clave para estudiar.
             Devuelve solo JSON valido, sin markdown.
-            NO inventes tiempos ni segundos: no incluyas marcas de tiempo en la respuesta.
-            Para cada capitulo y concepto incluye "fraseClave": una frase LITERAL (copiada tal cual)
-            de la transcripcion en el punto donde EMPIEZA ese tema o donde se explica ese concepto.
-            La fraseClave debe poder encontrarse en la transcripcion (5 a 12 palabras).
+            Cada linea de la transcripcion empieza con su segundo entre corchetes, por ejemplo "[138] ...".
+            Para cada capitulo y concepto incluye "segundoInicio": el numero de segundo (el valor
+            que aparece entre corchetes) de la linea donde EMPIEZA realmente ese tema o donde se
+            explica ese concepto.
+            Usa SIEMPRE un segundo que aparezca entre corchetes en la transcripcion; NO inventes
+            valores intermedios. El titulo y la descripcion deben corresponder al contenido de esa
+            misma linea y las siguientes, no a otro punto del video.
             """;
 
         String usuario = """
-            Genera entre 5 y 8 capitulos en orden cronologico que cubran toda la clase,
-            y entre 6 y 10 conceptos clave. Responde con esta forma exacta:
+            Genera entre 5 y 8 capitulos en orden cronologico (segundoInicio creciente) que cubran
+            toda la clase, y entre 6 y 10 conceptos clave. Responde con esta forma exacta:
             {
               "capitulos": [
-                {"titulo": "...", "descripcion": "...", "fraseClave": "frase literal de la transcripcion donde empieza este capitulo"}
+                {"titulo": "...", "descripcion": "...", "segundoInicio": 138}
               ],
               "conceptos": [
-                {"nombre": "...", "definicion": "...", "fraseClave": "frase literal de la transcripcion donde se explica el concepto"}
+                {"nombre": "...", "definicion": "...", "segundoInicio": 138}
               ]
             }
 
-            Transcripcion (cada linea: [segundo] texto). Usala solo para extraer la fraseClave literal:
+            Transcripcion (cada linea: [segundo] texto):
             """ + construirTranscripcionCompacta(fragmentos);
 
         String json = chatGptServicio.completarEstructurado(sistema, usuario, 1800);
@@ -124,50 +127,29 @@ public class AnalisisClaseServicio {
     private ResultadoAnalisis parsearAnalisis(String json, List<FragmentoTranscripcion> fragmentos, double duracion) {
         try {
             JsonNode raiz = mapeadorJson.readTree(json);
-            List<FragmentoTranscripcion> ordenados = ordenar(fragmentos);
 
-            // ── Capítulos: timestamp = fragmento real más parecido a la fraseClave, monótono ──
-            record CapDatos(String titulo, String descripcion, String fraseClave) {}
-            List<CapDatos> capDatos = new ArrayList<>();
+            // ── Capítulos: el segundoInicio lo elige GPT de los marcadores [segundo] reales ──
+            // La normalización temporal final (orden, fines, sin solapamientos) se hace después
+            // en generarYGuardar (común a GPT y fallback).
+            List<CapituloVideoDTO> capitulos = new ArrayList<>();
             int orden = 0;
             for (JsonNode nodo : raiz.path("capitulos")) {
                 String titulo = limpiar(nodo.path("titulo").asText("Capitulo " + (orden + 1)), 90);
                 String descripcion = limpiar(nodo.path("descripcion").asText(""), 220);
-                String frase = limpiar(nodo.path("fraseClave").asText(""), 200);
-                capDatos.add(new CapDatos(titulo, descripcion, frase));
+                double inicio = segundoValido(nodo.path("segundoInicio").asDouble(0), duracion);
+                LOG.infof("[Analisis][Cap %d] titulo='%s' -> t=%.0fs", orden + 1, titulo, inicio);
+                capitulos.add(new CapituloVideoDTO(null, titulo, descripcion, inicio, inicio, orden, "IA", false, true));
                 orden++;
             }
 
-            List<CapituloVideoDTO> capitulos = new ArrayList<>();
-            int indicePrevio = -1; // garantiza orden temporal estrictamente creciente
-            int[] indicesUsados = new int[capDatos.size()];
-            for (int i = 0; i < capDatos.size(); i++) {
-                CapDatos c = capDatos.get(i);
-                int idx = emparejarFragmento(ordenados, c.fraseClave() + " " + c.titulo(), indicePrevio + 1);
-                if (idx <= indicePrevio) idx = Math.min(indicePrevio + 1, ordenados.size() - 1);
-                indicePrevio = idx;
-                indicesUsados[i] = idx;
-                FragmentoTranscripcion frag = ordenados.get(idx);
-                double inicio = valorTiempo(frag.tiempoInicio);
-                // [Diagnóstico] Trazabilidad título → fragmento real → timestamp
-                LOG.infof("[Analisis][Cap %d] titulo='%s' | fraseClave='%s' -> fragmento#%d (t=%.0fs) texto='%s'",
-                    i + 1, c.titulo(), c.fraseClave(), idx, inicio, recorte(frag.texto, 60));
-                capitulos.add(new CapituloVideoDTO(null, c.titulo(), c.descripcion(), inicio, inicio, i, "IA", false, true));
-            }
-            // La normalización temporal final (orden, fines, sin solapamientos) se hace en
-            // generarYGuardar, común a GPT y fallback.
-
-            // ── Conceptos: timestamp = fragmento real más parecido (sin forzar monotonía) ──
+            // ── Conceptos: el segundoInicio también lo elige GPT de los marcadores reales ──
             List<ConceptoClaveVideoDTO> conceptos = new ArrayList<>();
             orden = 0;
             for (JsonNode nodo : raiz.path("conceptos")) {
                 String nombre = limpiar(nodo.path("nombre").asText("Concepto " + (orden + 1)), 80);
                 String definicion = limpiar(nodo.path("definicion").asText(""), 220);
-                String frase = limpiar(nodo.path("fraseClave").asText(""), 200);
-                int idx = emparejarFragmento(ordenados, frase + " " + nombre, 0);
-                double inicio = idx >= 0 ? valorTiempo(ordenados.get(idx).tiempoInicio) : 0.0;
-                LOG.infof("[Analisis][Concepto %d] '%s' | fraseClave='%s' -> fragmento#%d (t=%.0fs)",
-                    orden + 1, nombre, frase, idx, inicio);
+                double inicio = segundoValido(nodo.path("segundoInicio").asDouble(0), duracion);
+                LOG.infof("[Analisis][Concepto %d] '%s' -> t=%.0fs", orden + 1, nombre, inicio);
                 conceptos.add(new ConceptoClaveVideoDTO(null, nombre, definicion, inicio, null, orden++, false, true));
             }
 
@@ -181,8 +163,15 @@ public class AnalisisClaseServicio {
         }
     }
 
+    /** Asegura que el segundo elegido por GPT cae dentro de [0, duracion] del vídeo. */
+    private double segundoValido(double segundo, double duracion) {
+        if (segundo < 0) return 0;
+        if (duracion > 0 && segundo > duracion) return duracion;
+        return segundo;
+    }
+
     // Devuelve el índice del fragmento (a partir de desde) con mayor solape léxico con el texto
-    // objetivo. -1 si no hay candidatos.
+    // objetivo. -1 si no hay candidatos. (Ya no se usa para capítulos/conceptos tras la Opción A.)
     private int emparejarFragmento(List<FragmentoTranscripcion> ordenados, String objetivo, int desde) {
         java.util.Set<String> tokensObjetivo = tokensSignificativos(objetivo);
         int mejorIdx = -1;
