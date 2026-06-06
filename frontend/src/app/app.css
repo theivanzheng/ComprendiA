@@ -781,6 +781,63 @@
   color: rgba(228, 225, 231, 0.94);
 }
 
+/* Desplegable del pill "Fuente": enlace del vídeo + copiar + abrir */
+.fuente-popover {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 320px;
+  padding: 0.4rem 0.5rem;
+  border-radius: 10px;
+  background: rgba(24, 24, 29, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(14px);
+}
+
+.fuente-url {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(199, 196, 216, 0.85);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.fuente-copiar,
+.fuente-abrir {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(228, 225, 231, 0.9);
+  text-decoration: none;
+  font-size: 0.86rem;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.fuente-copiar:hover,
+.fuente-abrir:hover {
+  background: rgba(195, 192, 255, 0.14);
+  border-color: rgba(195, 192, 255, 0.3);
+}
+
+.fuente-ok {
+  color: #7ee3a0;
+  font-weight: 700;
+}
+
 .date-pill {
   position: relative;
   cursor: pointer;

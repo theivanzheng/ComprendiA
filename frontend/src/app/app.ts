@@ -250,6 +250,9 @@ export class App implements OnInit, OnDestroy {
   protected asignaturaClase = 'Sin asignatura';
   // La asignatura actual es solo una sugerencia automática (metadato visual).
   protected asignaturaSugerida = false;
+  // Desplegable del pill "Fuente" con el enlace del vídeo y el botón de copiar.
+  protected fuenteMenuAbierto = false;
+  protected fuenteCopiado = false;
   protected profesorClase = 'Profesor pendiente';
   protected fechaClase = this.obtenerFechaActual();
   protected tiempoInicioReproductor = 0;
@@ -407,6 +410,10 @@ export class App implements OnInit, OnDestroy {
       this.menuAsignaturaCardId = null;
       this.cd.detectChanges();
     }
+    if (this.fuenteMenuAbierto) {
+      this.fuenteMenuAbierto = false;
+      this.cd.detectChanges();
+    }
     if (this.menuItemAbierto !== null) {
       this.menuItemAbierto = null;
       this.cd.detectChanges();
@@ -538,6 +545,35 @@ export class App implements OnInit, OnDestroy {
   get thumbnailClase(): string {
     // hqdefault siempre existe (maxresdefault da 404 en algunos vídeos)
     return this.obtenerThumbnailYoutube(this.youtubeIdClase, 'hqdefault');
+  }
+
+  // Enlace "limpio" del vídeo (sin marca de tiempo), para copiar/compartir.
+  get enlaceVideoLimpio(): string {
+    const id = this.youtubeIdClase;
+    return id ? `https://www.youtube.com/watch?v=${id}` : '';
+  }
+
+  // Abre/cierra el desplegable del pill "Fuente".
+  alternarFuenteMenu(evento: Event): void {
+    evento.stopPropagation();
+    this.fuenteMenuAbierto = !this.fuenteMenuAbierto;
+    this.fuenteCopiado = false;
+  }
+
+  // Copia el enlace del vídeo al portapapeles y muestra confirmación temporal.
+  copiarEnlaceVideo(): void {
+    const enlace = this.enlaceVideoLimpio;
+    if (!enlace) return;
+    navigator.clipboard?.writeText(enlace).then(() => {
+      this.fuenteCopiado = true;
+      this.cd.detectChanges();
+      setTimeout(() => {
+        this.fuenteCopiado = false;
+        this.cd.detectChanges();
+      }, 1800);
+    }).catch(() => {
+      // Si el portapapeles no está disponible, no se rompe nada.
+    });
   }
 
   // URL pública para abrir el vídeo en YouTube (fallback si el embed está bloqueado)

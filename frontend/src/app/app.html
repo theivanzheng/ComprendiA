@@ -286,15 +286,36 @@
                     </label>
 
                     @if (youtubeIdClase) {
-                      <a
-                        class="class-meta-pill source-pill"
-                        [href]="urlYoutubeClase"
-                        target="_blank"
-                        rel="noopener"
-                        aria-label="Abrir el vídeo original en YouTube">
-                        <strong>Fuente:</strong>
-                        <span>YouTube ↗</span>
-                      </a>
+                      <div class="meta-pill-shell" (click)="$event.stopPropagation()">
+                        <button
+                          class="class-meta-pill source-pill is-editable"
+                          type="button"
+                          [class.activo]="fuenteMenuAbierto"
+                          (click)="alternarFuenteMenu($event)"
+                          aria-label="Ver el enlace del vídeo">
+                          <strong>Fuente:</strong>
+                          <span>YouTube</span>
+                          <i aria-hidden="true"></i>
+                        </button>
+
+                        @if (fuenteMenuAbierto) {
+                          <div class="fuente-popover">
+                            <span class="fuente-url" [title]="enlaceVideoLimpio">{{ enlaceVideoLimpio }}</span>
+                            <button
+                              class="fuente-copiar"
+                              type="button"
+                              (click)="copiarEnlaceVideo()"
+                              [attr.aria-label]="fuenteCopiado ? 'Enlace copiado' : 'Copiar enlace'">
+                              @if (fuenteCopiado) {
+                                <span class="fuente-ok">✓</span>
+                              } @else {
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              }
+                            </button>
+                            <a class="fuente-abrir" [href]="enlaceVideoLimpio" target="_blank" rel="noopener" aria-label="Abrir en YouTube">↗</a>
+                          </div>
+                        }
+                      </div>
                     }
                   </div>
                 </div>
