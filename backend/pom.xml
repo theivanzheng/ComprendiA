@@ -52,6 +52,17 @@
       <artifactId>langchain4j-google-ai-gemini</artifactId>
       <version>1.0.0-beta1</version>
     </dependency>
+    <!-- Documentos del curso: troceado (DocumentSplitters) y extracción de texto con Apache Tika -->
+    <dependency>
+      <groupId>dev.langchain4j</groupId>
+      <artifactId>langchain4j</artifactId>
+      <version>1.0.0-beta1</version>
+    </dependency>
+    <dependency>
+      <groupId>dev.langchain4j</groupId>
+      <artifactId>langchain4j-document-parser-apache-tika</artifactId>
+      <version>1.0.0-beta1</version>
+    </dependency>
     <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-arc</artifactId>

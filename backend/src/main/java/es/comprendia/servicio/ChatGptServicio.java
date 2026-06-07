@@ -71,6 +71,9 @@ public class ChatGptServicio {
         "6) El contenido puede estar en otro idioma (por ejemplo inglés); tradúcelo y responde igualmente. " +
         "7) Si el alumno usa un pronombre o una alusión ('el móvil', 'ese', 'y después?', 'cuánto costaba?'), " +
         "interpreta a qué se refería por los mensajes anteriores. " +
+        "8) Además de la transcripción, el contexto puede incluir extractos de documentos del curso " +
+        "(marcados como '[Documento: nombre]'). Úsalos igualmente como fuente válida; si te apoyas en uno, " +
+        "puedes mencionar de qué documento procede. " +
         "Responde en el mismo idioma de la pregunta. Sé breve y claro.";
 
     @ConfigProperty(name = "comprendia.openai.api.clave", defaultValue = "")

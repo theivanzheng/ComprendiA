@@ -59,6 +59,9 @@ public class TranscripcionConsultaRecurso {
     RagServicio ragServicio;
 
     @Inject
+    es.comprendia.servicio.DocumentoServicio documentoServicio;
+
+    @Inject
     VideoRepositorio videoRepositorio;
 
     @Inject
@@ -99,6 +102,31 @@ public class TranscripcionConsultaRecurso {
     @Path("/{id}/fragmentos")
     public List<FragmentoDTO> obtenerFragmentos(@PathParam("id") Long id) {
         return fragmentoConsultaServicio.obtenerPorVideoId(id);
+    }
+
+    // ── Documentos del curso de la clase ─────────────────────────────────────
+    @GET
+    @Path("/{id}/documentos")
+    public List<es.comprendia.dto.DocumentoClaseDTO> listarDocumentos(@PathParam("id") Long id) {
+        return documentoServicio.listar(id);
+    }
+
+    @POST
+    @Path("/{id}/documentos")
+    @Consumes(MediaType.MULTIPART_FORM_DATA)
+    public es.comprendia.dto.DocumentoClaseDTO subirDocumento(
+            @PathParam("id") Long id,
+            @org.jboss.resteasy.reactive.RestForm("archivo") org.jboss.resteasy.reactive.multipart.FileUpload archivo) {
+        if (archivo == null) {
+            throw new jakarta.ws.rs.BadRequestException("Falta el archivo (campo 'archivo').");
+        }
+        byte[] contenido;
+        try {
+            contenido = java.nio.file.Files.readAllBytes(archivo.uploadedFile());
+        } catch (java.io.IOException e) {
+            throw new jakarta.ws.rs.BadRequestException("No se pudo leer el archivo subido: " + e.getMessage());
+        }
+        return documentoServicio.subir(id, archivo.fileName(), archivo.contentType(), contenido);
     }
 
     @GET

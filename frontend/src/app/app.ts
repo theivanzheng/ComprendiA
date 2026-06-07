@@ -1,7 +1,7 @@
 import { ChangeDetectorRef, Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';
-import { TranscripcionServicio, VideoMetadata, SolicitudAsignatura, ModeloChat } from './servicios/transcripcion.servicio';
+import { TranscripcionServicio, VideoMetadata, SolicitudAsignatura, ModeloChat, DocumentoClase } from './servicios/transcripcion.servicio';
 import { RespuestaTranscripcion } from './modelos/respuesta-transcripcion';
 import { VideoResumen } from './modelos/video-resumen';
 import { FragmentoVideo } from './modelos/fragmento-video';
@@ -134,6 +134,10 @@ export class App implements OnInit, OnDestroy {
   // Multi-modelo: modelos de chat disponibles y el elegido en el selector.
   protected modelosChat: ModeloChat[] = [];
   protected modeloChatSeleccionado = 'openai';
+  // Documentos del curso de la clase actual.
+  protected documentos: DocumentoClase[] = [];
+  protected subiendoDocumento = false;
+  protected errorDocumento = '';
   // Memoria ligera para resolver referencias implícitas ("el móvil", "ese reloj", "y después?").
   protected contextoConversacion: {
     ultimaEntidad: string | null;
@@ -402,6 +406,62 @@ export class App implements OnInit, OnDestroy {
         this.cd.detectChanges();
       },
       error: () => { /* si falla, el selector simplemente no se muestra */ }
+    });
+  }
+
+  // ── Documentos del curso ────────────────────────────────────────────────────
+  private cargarDocumentos(idVideo: number): void {
+    this.documentos = [];
+    this.errorDocumento = '';
+    this.transcripcionServicio.listarDocumentos(idVideo).subscribe({
+      next: (docs) => {
+        if (this.videoSeleccionado?.id !== idVideo) return;
+        this.documentos = docs;
+        this.cd.detectChanges();
+      },
+      error: () => { /* sin documentos o error: se deja la lista vacía */ }
+    });
+  }
+
+  protected onArchivoDocumentoSeleccionado(evento: Event): void {
+    const input = evento.target as HTMLInputElement;
+    const archivo = input.files?.[0];
+    if (!archivo || !this.videoSeleccionado) return;
+    const idVideo = this.videoSeleccionado.id;
+
+    this.subiendoDocumento = true;
+    this.errorDocumento = '';
+    this.cd.detectChanges();
+
+    this.transcripcionServicio.subirDocumento(idVideo, archivo).subscribe({
+      next: (doc) => {
+        if (this.videoSeleccionado?.id === idVideo) {
+          this.documentos = [doc, ...this.documentos];
+        }
+        this.subiendoDocumento = false;
+        this.cd.detectChanges();
+      },
+      error: (e) => {
+        this.errorDocumento = e?.error?.includes?.('OCR')
+          ? 'No se pudo extraer texto (¿PDF escaneado? Necesitaría OCR).'
+          : 'No se pudo subir el documento. Inténtalo de nuevo.';
+        this.subiendoDocumento = false;
+        this.cd.detectChanges();
+      }
+    });
+    input.value = ''; // permite volver a subir el mismo archivo
+  }
+
+  protected eliminarDocumento(doc: DocumentoClase): void {
+    this.transcripcionServicio.eliminarDocumento(doc.id).subscribe({
+      next: () => {
+        this.documentos = this.documentos.filter((d) => d.id !== doc.id);
+        this.cd.detectChanges();
+      },
+      error: () => {
+        this.errorDocumento = 'No se pudo eliminar el documento.';
+        this.cd.detectChanges();
+      }
     });
   }
 
@@ -849,6 +909,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   private cargarDetallesClase(idVideo: number): void {
+    this.cargarDocumentos(idVideo);
     const claseCacheada = this.cacheClases.get(idVideo);
     if (claseCacheada?.fragmentos && claseCacheada.capitulos && claseCacheada.conceptos) {
       this.fragmentos = claseCacheada.fragmentos;

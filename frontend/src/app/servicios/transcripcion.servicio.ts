@@ -59,6 +59,14 @@ export interface ModeloChat {
   disponible: boolean;
 }
 
+export interface DocumentoClase {
+  id: number;
+  nombreArchivo: string;
+  tipoMime: string;
+  numFragmentos: number;
+  fechaSubida: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class TranscripcionServicio {
 
@@ -272,5 +280,20 @@ export class TranscripcionServicio {
   /** Modelos de chat disponibles para el selector (multi-modelo). */
   obtenerModelos(): Observable<ModeloChat[]> {
     return this.http.get<ModeloChat[]>(`${this.urlBase}/modelos`);
+  }
+
+  // ── Documentos del curso ──────────────────────────────────────────────────
+  listarDocumentos(idVideo: number): Observable<DocumentoClase[]> {
+    return this.http.get<DocumentoClase[]>(`${this.urlBase}/transcripciones/${idVideo}/documentos`);
+  }
+
+  subirDocumento(idVideo: number, archivo: File): Observable<DocumentoClase> {
+    const datos = new FormData();
+    datos.append('archivo', archivo, archivo.name);
+    return this.http.post<DocumentoClase>(`${this.urlBase}/transcripciones/${idVideo}/documentos`, datos);
+  }
+
+  eliminarDocumento(idDocumento: number): Observable<void> {
+    return this.http.delete<void>(`${this.urlBase}/documentos/${idDocumento}`);
   }
 }

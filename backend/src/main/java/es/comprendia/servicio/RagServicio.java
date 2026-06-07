@@ -12,7 +12,9 @@ import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
+import es.comprendia.dto.FuenteDocumentoDTO;
 import es.comprendia.entidad.Video;
+import es.comprendia.servicio.rag.AlmacenDocumentosPgvector;
 import es.comprendia.servicio.rag.AlmacenEmbeddingsPgvector;
 import es.comprendia.repositorio.FragmentoTranscripcionRepositorio;
 
@@ -37,6 +39,8 @@ public class RagServicio {
 
     private static final Logger LOG = Logger.getLogger(RagServicio.class);
     private static final int NUM_FRAGMENTOS = 8;
+    // Cuántos trozos de documentos del curso se añaden como contexto extra (si los hay).
+    private static final int NUM_FRAGMENTOS_DOCUMENTO = 4;
     // Si el vídeo tiene <= estos fragmentos, se le pasa la transcripción COMPLETA a la LLM
     // (cabe de sobra en el contexto) en lugar de solo los más parecidos. Evita que se pierda
     // información por una recuperación incompleta en vídeos cortos.
@@ -77,6 +81,9 @@ public class RagServicio {
     AlmacenEmbeddingsPgvector almacenEmbeddings;
 
     @Inject
+    AlmacenDocumentosPgvector almacenDocumentos;
+
+    @Inject
     ChatGptServicio chatGptServicio;
 
     /**
@@ -105,6 +112,48 @@ public class RagServicio {
                 coincidencia.score()));
         }
         return fuentes;
+    }
+
+    /**
+     * Recupera los trozos de documentos del curso más relevantes para la clase, vía el
+     * {@link AlmacenDocumentosPgvector}. Devuelve lista vacía si la clase no tiene documentos.
+     */
+    private List<FuenteDocumentoDTO> recuperarDocumentos(Long videoId, String textoBusqueda, int limite) {
+        Embedding consulta = embeddingServicio.generarEmbeddingLc(textoBusqueda);
+        EmbeddingSearchRequest peticion = EmbeddingSearchRequest.builder()
+            .queryEmbedding(consulta)
+            .maxResults(limite)
+            .filter(metadataKey(AlmacenDocumentosPgvector.CLAVE_VIDEO).isEqualTo(videoId))
+            .build();
+
+        EmbeddingSearchResult<TextSegment> resultado = almacenDocumentos.search(peticion);
+        List<FuenteDocumentoDTO> trozos = new ArrayList<>();
+        for (EmbeddingMatch<TextSegment> coincidencia : resultado.matches()) {
+            TextSegment segmento = coincidencia.embedded();
+            trozos.add(new FuenteDocumentoDTO(
+                segmento.text(),
+                segmento.metadata().getString(AlmacenDocumentosPgvector.CLAVE_DOCUMENTO),
+                coincidencia.score()));
+        }
+        return trozos;
+    }
+
+    /**
+     * Bloque de contexto con extractos de documentos del curso (vacío si no hay). Cada extracto se
+     * marca con su documento de origen para que el modelo pueda distinguirlo de la transcripción.
+     */
+    private String bloqueDocumentos(Long videoId, String textoBusqueda) {
+        List<FuenteDocumentoDTO> trozos = recuperarDocumentos(videoId, textoBusqueda, NUM_FRAGMENTOS_DOCUMENTO);
+        if (trozos.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder("\n\nExtractos de documentos del curso:\n");
+        for (FuenteDocumentoDTO trozo : trozos) {
+            sb.append("[Documento: ").append(trozo.nombreDocumento()).append("] ")
+                .append(trozo.texto()).append("\n");
+        }
+        LOG.infof("[RAG] %d extractos de documentos añadidos al contexto (vídeo id=%s)", trozos.size(), videoId);
+        return sb.toString();
     }
 
     @Transactional
@@ -166,7 +215,7 @@ public class RagServicio {
             return new RespuestaRagDTO("Todavía no tengo la transcripción procesada para responder sobre este vídeo.", fuentes);
         }
 
-        String contexto = construirContextoParaVideo(videoId, fuentes);
+        String contexto = construirContextoParaVideo(videoId, fuentes) + bloqueDocumentos(videoId, textoBusqueda);
         LOG.infof("[RAG] Conversacion. %d fragmentos mostrados, %d turnos previos, entidad aplicada='%s' para: %s",
             fuentes.size(), historial.size(), entidadEfectiva, pregunta);
 
@@ -192,7 +241,7 @@ public class RagServicio {
         String textoBusqueda = entidadEfectiva == null
             ? consulta.pregunta() : consulta.pregunta() + " " + entidadEfectiva;
         List<ResultadoBusquedaDTO> fuentes = recuperar(videoId, textoBusqueda, NUM_FRAGMENTOS);
-        String contexto = construirContextoParaVideo(videoId, fuentes);
+        String contexto = construirContextoParaVideo(videoId, fuentes) + bloqueDocumentos(videoId, textoBusqueda);
         LOG.infof("[RAG-WS] Recuperados %d fragmentos para mostrar (entidad aplicada='%s'), momentos=[%s] | pregunta: %s",
             fuentes.size(), entidadEfectiva, momentosDe(fuentes), consulta.pregunta());
         return new PreparacionRag(contexto, fuentes, entidadEfectiva);
