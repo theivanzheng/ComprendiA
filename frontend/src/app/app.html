@@ -317,6 +317,16 @@
                         }
                       </div>
                     }
+
+                    <button
+                      class="class-meta-pill is-editable completion-pill"
+                      type="button"
+                      [class.is-complete]="claseActualCompletada"
+                      (click)="alternarClaseCompletada()"
+                      aria-label="Marcar la clase como completada">
+                      <span class="completion-dot" aria-hidden="true"></span>
+                      <span>{{ claseActualCompletada ? 'Completada' : 'Marcar como completa' }}</span>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -370,15 +380,46 @@
                   <span>↓</span>
                   Descargar transcripción
                 </button>
-                <button
-                  class="annotation-action completion-action"
-                  type="button"
-                  [class.is-complete]="claseActualCompletada"
-                  (click)="alternarClaseCompletada()">
-                  <span class="completion-dot" aria-hidden="true"></span>
-                  {{ claseActualCompletada ? 'Completada' : 'Marcar como completa' }}
-                </button>
+                <label
+                  class="annotation-action documento-pill"
+                  [class.is-disabled]="subiendoDocumento"
+                  title="Adjuntar un documento (PDF, Word, PowerPoint, TXT) a esta clase">
+                  <span aria-hidden="true">📎</span>
+                  {{ subiendoDocumento
+                      ? 'Procesando…'
+                      : (documentos.length > 0 ? 'Documentos · ' + documentos.length : 'Documentos') }}
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.rtf,.odt"
+                    (change)="onArchivoDocumentoSeleccionado($event)"
+                    [disabled]="subiendoDocumento"
+                    hidden
+                  />
+                </label>
               </div>
+
+              @if (errorDocumento) {
+                <div class="documento-error">{{ errorDocumento }}</div>
+              }
+              @if (documentos.length > 0) {
+                <ul class="documentos-desplegable">
+                  @for (doc of documentos; track doc.id) {
+                    <li class="documento-item">
+                      <span class="documento-icono">📄</span>
+                      <div class="documento-info">
+                        <span class="documento-nombre">{{ doc.nombreArchivo }}</span>
+                        <span class="documento-meta">{{ doc.numFragmentos }} fragmentos</span>
+                      </div>
+                      <button
+                        type="button"
+                        class="documento-eliminar"
+                        (click)="eliminarDocumento(doc)"
+                        aria-label="Eliminar documento"
+                      >✕</button>
+                    </li>
+                  }
+                </ul>
+              }
 
               <div class="chapter-timeline" aria-label="Capitulos de la clase">
                 <button class="timeline-heading timeline-toggle" type="button" (click)="alternarContenidoTratado()">
@@ -562,50 +603,6 @@
                 }
                 }
               </div>
-            </section>
-
-            <section class="content-section documentos-section">
-              <div class="section-heading compact">
-                <h2>Documentos del curso</h2>
-                <label class="documento-subir-btn" [class.is-disabled]="subiendoDocumento">
-                  @if (subiendoDocumento) { Procesando… } @else { + Añadir documento }
-                  <input
-                    type="file"
-                    accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.rtf,.odt"
-                    (change)="onArchivoDocumentoSeleccionado($event)"
-                    [disabled]="subiendoDocumento"
-                    hidden
-                  />
-                </label>
-              </div>
-
-              @if (errorDocumento) {
-                <div class="documento-error">{{ errorDocumento }}</div>
-              }
-
-              @if (documentos.length === 0 && !subiendoDocumento) {
-                <p class="documentos-vacio">
-                  Sube apuntes, presentaciones o PDFs y el asistente los usará para responder.
-                </p>
-              } @else {
-                <ul class="documentos-lista">
-                  @for (doc of documentos; track doc.id) {
-                    <li class="documento-item">
-                      <span class="documento-icono">📄</span>
-                      <div class="documento-info">
-                        <span class="documento-nombre">{{ doc.nombreArchivo }}</span>
-                        <span class="documento-meta">{{ doc.numFragmentos }} fragmentos</span>
-                      </div>
-                      <button
-                        type="button"
-                        class="documento-eliminar"
-                        (click)="eliminarDocumento(doc)"
-                        aria-label="Eliminar documento"
-                      >✕</button>
-                    </li>
-                  }
-                </ul>
-              }
             </section>
 
             <section class="content-section">

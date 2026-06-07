@@ -1100,6 +1100,39 @@
   box-shadow: inset 0 0 0 2px rgba(10, 10, 11, 0.8);
 }
 
+/* Pill de "Marcar como completa" dentro de la fila de metadatos (asignatura/profesor…) */
+.class-meta-pill.completion-pill {
+  max-width: none;
+  gap: 0.4rem;
+}
+
+.completion-pill .completion-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(195, 192, 255, 0.72);
+  background: transparent;
+  flex: none;
+}
+
+.completion-pill.is-complete {
+  border-color: rgba(16, 185, 129, 0.24);
+  background: rgba(16, 185, 129, 0.1);
+  color: rgba(209, 250, 229, 0.92);
+}
+
+.completion-pill.is-complete:hover {
+  background: rgba(16, 185, 129, 0.16);
+  border-color: rgba(16, 185, 129, 0.36);
+  color: rgba(209, 250, 229, 1);
+}
+
+.completion-pill.is-complete .completion-dot {
+  border-color: #10b981;
+  background: #10b981;
+  box-shadow: inset 0 0 0 2px rgba(10, 10, 11, 0.8);
+}
+
 .chapter-timeline {
   position: relative;
   display: grid;
@@ -1837,59 +1870,32 @@
   border-top: 1px solid rgba(255, 255, 255, 0.065);
 }
 
-/* Documentos del curso */
-.documentos-section .section-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.6rem;
-}
-
-.documento-subir-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.4rem 0.7rem;
-  border-radius: 999px;
-  border: 1px solid rgba(195, 192, 255, 0.25);
-  background: rgba(195, 192, 255, 0.08);
-  color: #e4e1e7;
-  font-size: 0.76rem;
-  font-weight: 640;
-  cursor: pointer;
-  transition: background 0.18s ease, border-color 0.18s ease;
-  white-space: nowrap;
-}
-
-.documento-subir-btn:hover {
-  background: rgba(195, 192, 255, 0.16);
-  border-color: rgba(195, 192, 255, 0.4);
-}
-
-.documento-subir-btn.is-disabled {
+/* Documentos del curso: pill en la barra de acciones + desplegable bajo ella */
+.documento-pill.is-disabled {
   opacity: 0.6;
   cursor: default;
-}
-
-.documentos-vacio {
-  color: rgba(228, 225, 231, 0.5);
-  font-size: 0.82rem;
-  margin: 0.5rem 0 0;
+  pointer-events: none;
 }
 
 .documento-error {
   color: #ff9b9b;
   font-size: 0.8rem;
-  margin: 0.4rem 0;
+  margin: 0.55rem 0 0;
 }
 
-.documentos-lista {
+.documentos-desplegable {
   list-style: none;
   margin: 0.6rem 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+  animation: documentos-aparecer 0.18s ease;
+}
+
+@keyframes documentos-aparecer {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .documento-item {
