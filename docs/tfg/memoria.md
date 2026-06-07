@@ -456,16 +456,47 @@ El proyecto ha alcanzado su objetivo general: se ha diseñado e implementado una
 
 Más allá del cumplimiento de los requisitos, el trabajo me ha permitido integrar en un sistema real un conjunto de tecnologías actuales —transcripción automática, *embeddings*, búsqueda semántica y modelos de lenguaje— y enfrentarme a problemas propios de la ingeniería del software, como el procesamiento asíncrono, la degradación controlada ante fallos de servicios externos y la consistencia de los datos.
 
+El sistema ha evolucionado además hacia una arquitectura más sólida y alineada con las propuestas técnicas de referencia: la capa de inteligencia artificial se migró al *framework* **LangChain4j** (modelo de *embeddings*, modelos de chat y almacén de vectores con sus abstracciones estándar sobre `pgvector`); el asistente pasó a responder **en tiempo real por WebSocket con *streaming*** token a token; se incorporó **soporte multi-modelo** en el chat (OpenAI y Google Gemini, seleccionable por el usuario, manteniendo los *embeddings* fijos para no invalidar la búsqueda); y se añadió la posibilidad de adjuntar **documentos del curso** (PDF, Word, presentaciones) a cada clase, de modo que el asistente combina la transcripción del vídeo con esos materiales para responder.
+
 **Orientación social.** ComprendiA contribuye a un acceso más equitativo al conocimiento: permite navegar las clases por conceptos en lugar de verlas completas, favorece el aprendizaje autónomo y ayuda a estudiantes con ritmos o necesidades distintas. En este sentido, el proyecto se alinea con los Objetivos de Desarrollo Sostenible relativos a la educación de calidad (ODS 4), la reducción de las desigualdades (ODS 10) y la innovación (ODS 9).
 
 ## Líneas futuras
 
-- **Integración con plataformas educativas (LMS).** Conectar ComprendiA con Moodle, Blackboard u otros sistemas para procesar directamente las clases del entorno universitario.
-- **Asistente en tiempo real.** Llevar también el chat a WebSockets, con respuesta en *streaming* (token a token). El progreso del análisis ya se transmite por WebSocket; faltaría extenderlo al asistente.
-- **Gestión multiusuario.** Añadir autenticación y perfiles para soportar varios estudiantes y profesores.
-- **Optimización del procesamiento.** Reducir la latencia de las llamadas externas (reutilizar la consulta de `yt-dlp`, cachear *embeddings* de asignaturas, paralelizar fases) a partir de los tiempos medidos.
-- **Mejora de la clasificación.** Umbral de similitud configurable, sugerencia también del profesor y refinamiento del aprendizaje del canal.
-- **Reproductor enriquecido.** Marcar sobre la barra de progreso los capítulos y fragmentos analizados, sincronizando la posición del vídeo con la transcripción.
+Durante el desarrollo se han identificado varias mejoras que, por alcance, riesgo o por aportar
+escaso valor al usuario final frente al coste de implementarlas, se documentan como trabajo futuro.
+Esta delimitación forma parte del propio ejercicio de ingeniería: priorizar lo que aporta valor real
+sobre lo que solo añade complejidad.
+
+- **Interoperabilidad mediante el Protocolo MCP (*Model Context Protocol*).** MCP es un estándar
+  abierto que uniformiza cómo un modelo de lenguaje se conecta a herramientas y datos externos. Abre
+  dos vías: que ComprendiA actúe como *cliente* MCP (el asistente usaría herramientas externas, por
+  ejemplo una calculadora exacta o un buscador) o como *servidor* MCP (exponer la búsqueda en las
+  clases para que cualquier IA compatible —como Claude Desktop— la consulte). Se ha pospuesto porque
+  aporta un valor escaso al alumno que usa la aplicación web (es sobre todo una capa de
+  interoperabilidad), mientras que su integración añade complejidad de *tool-calling* y dependencias
+  adicionales. Se considera una evolución natural una vez consolidada la base actual.
+- **OCR de documentos escaneados.** La extracción de texto de los documentos del curso usa Apache
+  Tika, que recupera el texto digital del documento pero no reconoce imágenes. Los PDF escaneados
+  (fotografías de hojas) quedan, por tanto, fuera de alcance. Integrar un motor de OCR (Tesseract en
+  local o Amazon Textract como servicio gestionado) permitiría indexar también ese tipo de material.
+- **Documentos a nivel de asignatura y chat de asignatura.** Actualmente los documentos se asocian a
+  una clase concreta y el asistente responde por clase. Una extensión natural es permitir documentos
+  a nivel de asignatura (temario, formularios, bibliografía común) y un asistente que responda
+  combinando todas las clases y documentos de una misma asignatura.
+- **Citar el documento como fuente en el chat.** Los extractos de documentos ya se usan como contexto
+  y el modelo puede mencionar su nombre, pero —a diferencia de los fragmentos de vídeo, que enlazan al
+  minuto exacto— no se muestran todavía como una "fuente" navegable en la interfaz.
+- **Integración con plataformas educativas (LMS).** Conectar ComprendiA con Moodle, Blackboard u otros
+  sistemas para procesar directamente las clases del entorno universitario.
+- **Gestión multiusuario.** Añadir autenticación y perfiles para soportar varios estudiantes y
+  profesores.
+- **Optimización del procesamiento.** Reducir la latencia de las llamadas externas (reutilizar la
+  consulta de `yt-dlp`, cachear *embeddings* de asignaturas, paralelizar fases) a partir de los
+  tiempos medidos.
+- **Mejora de la clasificación.** Umbral de similitud configurable, sugerencia también del profesor y
+  refinamiento del aprendizaje del canal.
+- **Reproductor enriquecido.** Marcar sobre la barra de progreso los capítulos y fragmentos
+  analizados, sincronizando la posición del vídeo con la transcripción.
 
 # Anexo A. Manual de instalación y uso
 
